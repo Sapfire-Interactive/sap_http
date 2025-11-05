@@ -1,6 +1,6 @@
 # sap_http
 
-A modern, lightweight C++20 HTTP library with both client and server support.
+A modern, lightweight C++17 HTTP library with both client and server support.
 
 ## Features
 
@@ -87,9 +87,9 @@ int main() {
 **CMakeLists.txt:**
 
 ```cmake
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.15)
 project(my_app CXX)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 
 find_package(sap_http REQUIRED)
 
@@ -237,7 +237,7 @@ struct Request {
 };
 ```
 
-#### Response Object
+#### Route Handler Function
 
 ```cpp
 // Simple response
@@ -310,9 +310,10 @@ int main() {
         
         std::string json = "[";
         bool first = true;
-        for (const auto& [id, name] : db.users) {
+        for (const auto& user : db.users) {
             if (!first) json += ",";
-            json += R"({"id":)" + std::to_string(id) + R"(,"name":")" + name + R"("})";
+            json += R"({"id":)" + std::to_string(user.first) + 
+                    R"(,"name":")" + user.second + R"("})";
             first = false;
         }
         json += "]";
