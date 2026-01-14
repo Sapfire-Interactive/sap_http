@@ -1,3 +1,4 @@
+#include "sap_http/net/http.h"
 #include <cstring>
 #include "sap_http/net/http.h"
 
@@ -13,6 +14,7 @@
 #include <unistd.h>
 #endif
 
+namespace sap::http {
 namespace sap::http {
 
     // Parse incoming request and create a Request object
@@ -163,10 +165,11 @@ namespace sap::http {
         m_Config.server_socket = socket(AF_INET, SOCK_STREAM, 0);
         if (m_Config.server_socket < 0) {
 #ifdef _WIN32
-            i32 err = WSAGetLastError();
-            return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
+    i32 err = WSAGetLastError();
+    return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
 #else
-            return stl::make_error<>("Failed to create socket: {}", std::string(strerror(errno)));
+    return stl::make_error<>("Failed to create socket: {}",
+                             std::string(strerror(errno)));
 #endif
         }
         i32 opt = 1;
@@ -179,22 +182,27 @@ namespace sap::http {
         addr.sin_port = htons(m_Config.port);
         if (bind(m_Config.server_socket, (sockaddr*)&addr, sizeof(addr)) < 0) {
 #ifdef _WIN32
-            i32 err = WSAGetLastError();
-            closesocket(m_Config.server_socket);
-            return stl::make_error<>("Failed to bind to port {}: {}", std::to_string(m_Config.port), std::to_string(err));
+    i32 err = WSAGetLastError();
+    closesocket(m_Config.server_socket);
+    return stl::make_error<>("Failed to bind to port {}: {}",
+                             std::to_string(m_Config.port),
+                             std::to_string(err));
 #else
-            close(m_Config.server_socket);
-            return stl::make_error<>("Failed to bind to port {}: {}", std::to_string(m_Config.port), std::string(strerror(errno)));
+    close(m_Config.server_socket);
+    return stl::make_error<>("Failed to bind to port {}: {}",
+                             std::to_string(m_Config.port),
+                             std::string(strerror(errno)));
 #endif
         }
         if (listen(m_Config.server_socket, 10) < 0) {
 #ifdef _WIN32
-            i32 err = WSAGetLastError();
-            closesocket(m_Config.server_socket);
-            return stl::make_error<>("Failed to listen: {}", std::to_string(err));
+    i32 err = WSAGetLastError();
+    closesocket(m_Config.server_socket);
+    return stl::make_error<>("Failed to listen: {}", std::to_string(err));
 #else
-            close(m_Config.server_socket);
-            return stl::make_error<>("Failed to listen: {}", std::string(strerror(errno)));
+    close(m_Config.server_socket);
+    return stl::make_error<>("Failed to listen: {}",
+                             std::string(strerror(errno)));
 #endif
         }
         m_IsRunning = true;
@@ -248,4 +256,5 @@ namespace sap::http {
         }
     }
 
+} // namespace sap::http
 } // namespace sap::http
