@@ -4,32 +4,28 @@ A modern, lightweight C++20 HTTP library with both client and server support.
 
 ## Features
 
-- 🚀 **Modern C++20**: Clean, type-safe API using modern C++ features
-- 🌐 **HTTP Client & Server**: Full-featured client and server in one library
-- ⚡ **Async I/O**: Promise/future-based asynchronous client operations
-- 🛡️ **Type-Safe Error Handling**: Comprehensive `result<T>` type for all operations
-- 🔌 **Cross-Platform**: Windows, Linux, and macOS support
-- 📦 **Lightweight**: No external dependencies, minimal overhead
-- 🧵 **Multithreaded Server**: Optional multithreaded request handling
-- 🌐 **HTTP/1.1**: Full protocol support
+* **Modern C++20**: Clean, type-safe API using modern C++ features
+* **HTTP Client & Server**: Full-featured client and server in one library
+* **Async I/O**: Promise/future-based asynchronous client operations
+* **Type-Safe Error Handling**: Comprehensive `stl::result<T>` type for all operations
+* **Cross-Platform**: Windows, Linux, and macOS support
+* **Lightweight**: No external dependencies, minimal overhead
+* **Multithreaded Server**: Optional multithreaded request handling
 
 ## Quick Start
 
 ### Installation
 
 ```bash
-# Build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-
-# Install
 sudo cmake --install build
 ```
 
 ### Simple HTTP Client
 
 ```cpp
-#include <http/http.hpp>
+#include <sap_http/net/http.h>
 #include <iostream>
 
 int main() {
@@ -50,19 +46,22 @@ int main() {
 ### Simple HTTP Server
 
 ```cpp
-#include <http/http.hpp>
+#include <sap_http/net/http.h>
 #include <iostream>
 
 int main() {
-    sap::http::Server server;
-    server.set_port(8080).multithreaded();
+    sap::http::ServerConfig config;
+    config.port = 8080;
+    config.is_multithreaded = true;
     
-    // Add routes
-    server.route("/", sap::http::EMethod::GET, [](const sap::http::ServerRequest& req) {
+    sap::http::Server server(config);
+    
+    // Add routes - handler receives const Request&
+    server.route("/", sap::http::EMethod::GET, [](const sap::http::Request& req) {
         return sap::http::Response(200, "Hello, World!");
     });
     
-    server.route("/api/data", sap::http::EMethod::POST, [](const sap::http::ServerRequest& req) {
+    server.route("/api/data", sap::http::EMethod::POST, [](const sap::http::Request& req) {
         // Echo the request body
         sap::http::Response resp(200, req.body);
         resp.headers.set("Content-Type", "application/json");
@@ -86,6 +85,7 @@ int main() {
 ## Building Your Project
 
 **CMakeLists.txt:**
+
 ```cmake
 cmake_minimum_required(VERSION 3.20)
 project(my_app CXX)
@@ -96,10 +96,6 @@ find_package(sap_http REQUIRED)
 add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE sap::http)
 ```
-
-**Requirements:**
-- CMake 3.20+
-- Any C++20 compatible compiler (GCC 11+, Clang 14+, MSVC 19.28+)
 
 ## API Reference
 
@@ -112,7 +108,7 @@ target_link_libraries(my_app PRIVATE sap::http)
 auto future = sap::http::Client::get("http://api.example.com/users");
 auto result = future.get();
 
-// POST request with JSON
+// POST request with body
 std::string json = R"({"name": "John", "age": 30})";
 auto future = sap::http::Client::post("http://api.example.com/users", json);
 
@@ -127,6 +123,9 @@ if (url_result) {
     auto future = sap::http::Client::async_send(std::move(req));
     auto result = future.get();
 }
+
+// Synchronous send
+auto result = sap::http::Client::send(req);
 ```
 
 #### Supported Methods
@@ -158,7 +157,13 @@ if (result) {
     std::cout << "Port: " << url.port << '\n';      // "8080"
     std::cout << "Path: " << url.path << '\n';      // "/path"
     std::cout << "Query: " << url.query << '\n';    // "?query=value"
+    
+    // Get full path with query
+    std::string full = url.full_path();  // "/path?query=value"
 }
+
+// Create URL from path only
+auto url = sap::http::URL::from_path("/api/users?id=123");
 ```
 
 #### Headers Management
@@ -173,86 +178,38 @@ std::string content_type = h.get("content-type");
 bool has_auth = h.has("Authorization");
 ```
 
-#### Error Handling
-
-All client operations return `stl::result<T>`:
-
-```cpp
-auto result = sap::http::Client::get("http://example.com").get();
-
-// Check if request succeeded
-if (result.has_value()) {
-    auto& response = result.value();
-    
-    // Check HTTP status
-    if (response.is_success()) {  // 2xx status codes
-        std::cout << "Success: " << response.body << '\n';
-    } else {
-        std::cout << "HTTP Error " << response.status_code << '\n';
-    }
-} else {
-    // Network or parsing error
-    std::cerr << "Request failed: " << result.error() << '\n';
-}
-```
-
-#### Async Operations
-
-```cpp
-// Launch multiple requests concurrently
-std::vector<std::future<stl::result<sap::http::Response>>> futures;
-
-futures.push_back(sap::http::Client::get("http://api.example.com/users"));
-futures.push_back(sap::http::Client::get("http://api.example.com/posts"));
-futures.push_back(sap::http::Client::get("http://api.example.com/comments"));
-
-// Wait for all to complete
-for (auto& future : futures) {
-    auto result = future.get();
-    if (result) {
-        std::cout << "Status: " << result.value().status_code << '\n';
-    }
-}
-```
-
 ### HTTP Server
 
-#### Creating a Server
+#### Server Configuration
 
 ```cpp
-sap::http::Server server;
+sap::http::ServerConfig config;
+config.port = 8080;              // Port to listen on (default: 8080)
+config.is_multithreaded = true;  // Enable multithreaded mode (default: false)
 
-// Configure
-server.set_port(8080)      // Set port (default: 8080)
-      .multithreaded();    // Enable multithreaded mode
+sap::http::Server server(config);
 
-// Start
-auto result = server.start();
-if (result) {
-    server.run();  // Blocking
-}
-
-// Or run in background thread
-std::thread server_thread([&server]() {
-    if (server.start()) {
-        server.run();
-    }
-});
+// Or use default config
+sap::http::Server server;  // Uses port 8080, single-threaded
 ```
 
 #### Defining Routes
 
+Route handlers receive `const Request&` and return `Response`:
+
 ```cpp
 // Simple GET endpoint
-server.route("/health", sap::http::EMethod::GET, [](const sap::http::ServerRequest& req) {
+server.route("/health", sap::http::EMethod::GET, [](const sap::http::Request& req) {
     return sap::http::Response(200, R"({"status": "healthy"})");
 });
 
 // POST with request processing
-server.route("/api/users", sap::http::EMethod::POST, [](const sap::http::ServerRequest& req) {
+server.route("/api/users", sap::http::EMethod::POST, [](const sap::http::Request& req) {
     // Access request data
     std::string body = req.body;
     std::string content_type = req.headers.get("Content-Type");
+    std::string path = req.url.path;
+    std::string query = req.url.query;
     
     // Create response
     sap::http::Response resp(201, R"({"id": 123, "created": true})");
@@ -262,21 +219,21 @@ server.route("/api/users", sap::http::EMethod::POST, [](const sap::http::ServerR
 });
 
 // DELETE endpoint
-server.route("/api/users", sap::http::EMethod::DELETE, [](const sap::http::ServerRequest& req) {
+server.route("/api/users", sap::http::EMethod::DELETE, [](const sap::http::Request& req) {
     return sap::http::Response(204);  // No content
 });
 ```
 
-#### ServerRequest Object
+#### Request Object
 
 ```cpp
-struct ServerRequest {
-    EMethod method;                             // HTTP method
-    std::string path;                           // Request path
-    std::string query;                          // Query string
-    Headers headers;                            // Request headers
-    std::string body;                           // Request body
-    std::map<std::string, std::string> params;  // URL parameters
+struct Request {
+    EMethod method;                            // HTTP method
+    URL url;                                   // Parsed URL (use url.path, url.query)
+    Headers headers;                           // Request headers
+    std::string body;                          // Request body
+    std::map<std::string, std::string> params; // Route parameters (e.g., :id)
+    std::chrono::milliseconds timeout{30000};  // Request timeout
 };
 ```
 
@@ -291,10 +248,34 @@ sap::http::Response resp(201, R"({"id": 1})");
 resp.headers.set("Content-Type", "application/json");
 resp.headers.set("X-Custom-Header", "value");
 
-// Check success
-if (resp.is_success()) {  // 2xx status codes
+// Check success (2xx status codes)
+if (resp.is_success()) {
     // ...
 }
+```
+
+#### Running the Server
+
+```cpp
+sap::http::ServerConfig config;
+config.port = 8080;
+config.is_multithreaded = true;
+
+sap::http::Server server(config);
+
+// Add routes...
+server.route("/", sap::http::EMethod::GET, [](const sap::http::Request&) {
+    return sap::http::Response(200, "OK");
+});
+
+// Start and run
+auto result = server.start();
+if (result) {
+    server.run();  // Blocking - runs until stop() is called
+}
+
+// To stop from another thread:
+server.stop();
 ```
 
 ## Complete Examples
@@ -302,13 +283,12 @@ if (resp.is_success()) {  // 2xx status codes
 ### REST API Server
 
 ```cpp
-#include <http/http.hpp>
+#include <sap_http/net/http.h>
 #include <iostream>
 #include <string>
 #include <map>
 #include <mutex>
 
-// Simple in-memory database
 struct Database {
     std::map<int, std::string> users;
     std::mutex mtx;
@@ -317,11 +297,15 @@ struct Database {
 
 int main() {
     Database db;
-    sap::http::Server server;
-    server.set_port(8000).multithreaded();
+    
+    sap::http::ServerConfig config;
+    config.port = 8000;
+    config.is_multithreaded = true;
+    
+    sap::http::Server server(config);
     
     // GET /api/users - List all users
-    server.route("/api/users", sap::http::EMethod::GET, [&db](const sap::http::ServerRequest&) {
+    server.route("/api/users", sap::http::EMethod::GET, [&db](const sap::http::Request&) {
         std::lock_guard<std::mutex> lock(db.mtx);
         
         std::string json = "[";
@@ -339,12 +323,10 @@ int main() {
     });
     
     // POST /api/users - Create user
-    server.route("/api/users", sap::http::EMethod::POST, [&db](const sap::http::ServerRequest& req) {
+    server.route("/api/users", sap::http::EMethod::POST, [&db](const sap::http::Request& req) {
         std::lock_guard<std::mutex> lock(db.mtx);
         
-        // Parse name from JSON (simplified)
         std::string name = req.body;
-        
         int id = db.next_id++;
         db.users[id] = name;
         
@@ -357,10 +339,10 @@ int main() {
     });
     
     // DELETE /api/users - Delete all users
-    server.route("/api/users", sap::http::EMethod::DELETE, [&db](const sap::http::ServerRequest&) {
+    server.route("/api/users", sap::http::EMethod::DELETE, [&db](const sap::http::Request&) {
         std::lock_guard<std::mutex> lock(db.mtx);
         db.users.clear();
-        return sap::http::Response(204);  // No content
+        return sap::http::Response(204);
     });
     
     std::cout << "Starting REST API server on port 8000...\n";
@@ -372,10 +354,10 @@ int main() {
 }
 ```
 
-### HTTP Client with Multiple Concurrent Requests
+### Concurrent HTTP Requests
 
 ```cpp
-#include <http/http.hpp>
+#include <sap_http/net/http.h>
 #include <iostream>
 #include <vector>
 
@@ -408,69 +390,16 @@ int main() {
 }
 ```
 
-### Microservice with JSON API
+### POST JSON with Custom Headers
 
 ```cpp
-#include <http/http.hpp>
-#include <iostream>
-#include <string>
-
-int main() {
-    sap::http::Server server;
-    server.set_port(8000).multithreaded();
-    
-    // Health check
-    server.route("/health", sap::http::EMethod::GET, [](const sap::http::ServerRequest&) {
-        sap::http::Response resp(200, R"({"status":"healthy","model_loaded":true})");
-        resp.headers.set("Content-Type", "application/json");
-        return resp;
-    });
-    
-    // Chat endpoint
-    server.route("/chat", sap::http::EMethod::POST, [](const sap::http::ServerRequest& req) {
-        try {
-            // In production, parse JSON from req.body
-            std::string text = req.body;
-            
-            // Process the request...
-            std::string response_json = R"({
-                "action": null,
-                "response": "Hello! I received your message.",
-                "conversation_id": "conv_123"
-            })";
-            
-            sap::http::Response resp(200, response_json);
-            resp.headers.set("Content-Type", "application/json");
-            return resp;
-            
-        } catch (const std::exception& e) {
-            std::string error = R"({"error":")" + std::string(e.what()) + R"("})";
-            sap::http::Response resp(500, error);
-            resp.headers.set("Content-Type", "application/json");
-            return resp;
-        }
-    });
-    
-    std::cout << "Server running on port 8000\n";
-    if (server.start()) {
-        server.run();
-    }
-    
-    return 0;
-}
-```
-
-### POST JSON Data
-
-```cpp
-#include <http/http.hpp>
+#include <sap_http/net/http.h>
 #include <iostream>
 
 int main() {
     std::string json_data = R"({
         "username": "john_doe",
-        "email": "john@example.com",
-        "age": 30
+        "email": "john@example.com"
     })";
     
     auto url_result = sap::http::URL::parse("http://api.example.com/users");
@@ -484,41 +413,12 @@ int main() {
     req.set_header("Authorization", "Bearer your_token");
     req.set_body(std::move(json_data));
     
-    auto future = sap::http::Client::async_send(std::move(req));
-    auto result = future.get();
+    auto result = sap::http::Client::send(req);
     
     if (result) {
         auto& response = result.value();
         std::cout << "Status: " << response.status_code << '\n';
         std::cout << "Response: " << response.body << '\n';
-    }
-    
-    return 0;
-}
-```
-
-### Download Data with Custom Headers
-
-```cpp
-#include <http/http.hpp>
-#include <iostream>
-#include <fstream>
-
-int main() {
-    auto url_result = sap::http::URL::parse("http://example.com/data.json");
-    if (!url_result) return 1;
-    
-    sap::http::Request req(sap::http::EMethod::GET, std::move(url_result.value()));
-    req.set_header("Accept", "application/json");
-    req.set_header("User-Agent", "MyApp/1.0");
-    
-    auto future = sap::http::Client::async_send(std::move(req));
-    auto result = future.get();
-    
-    if (result && result.value().is_success()) {
-        std::ofstream file("data.json");
-        file << result.value().body;
-        std::cout << "Downloaded successfully!\n";
     }
     
     return 0;
@@ -534,52 +434,15 @@ int main() {
 | `SAP_HTTP_BUILD_TESTS` | `ON` | Build test suite |
 | `SAP_HTTP_INSTALL` | `ON` | Enable installation |
 
-**Examples:**
-
-```bash
-# Build only static library
-cmake -B build -DSAP_HTTP_BUILD_SHARED=OFF
-
-# Build without tests
-cmake -B build -DSAP_HTTP_BUILD_TESTS=OFF
-
-# Development build
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-```
-
-## Running Tests
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-
-# Run all tests
-ctest --test-dir build --output-on-failure
-
-# Run with verbose output
-ctest --test-dir build -V
-```
-
-**Test Coverage:**
-- ✅ URL parsing (15 tests)
-- ✅ Header management (8 tests)
-- ✅ Request building (9 tests)
-- ✅ Client operations (2 tests)
-- ✅ Response handling (3 tests)
-- ✅ Server operations (5 tests)
-- 🌐 Integration tests (4 tests, disabled by default)
-
 ## Naming Conventions
 
-The library uses consistent naming conventions:
-
 | Type | Convention | Example |
-|------|-----------|---------|
+|------|------------|---------|
 | **Enums** | PascalCase with `E` prefix | `EMethod` |
 | **Structs/Classes** | PascalCase | `URL`, `Headers`, `Request`, `Response`, `Client`, `Server` |
 | **Functions** | snake_case | `method_to_string()`, `set_header()` |
-| **Member variables** | snake_case | `status_code`, `body` |
-| **Types from core** | lowercase | `i32`, `u16`, `result<T>` |
+| **Member variables** | snake_case (public), m_PascalCase (private) | `status_code`, `m_Routes` |
+| **Types from sap_core** | lowercase | `i32`, `u16`, `stl::result<T>` |
 
 ## Platform Support
 
@@ -589,69 +452,20 @@ The library uses consistent naming conventions:
 | macOS | ✅ | ✅ | Tested on macOS 12+ |
 | Windows | ✅ | ✅ | MSVC 2019+, MinGW-w64 |
 
-## Performance Tips
-
-1. **Use multithreaded mode** for servers handling concurrent requests
-2. **Static linking** provides better optimization opportunities
-3. **Async operations** enable efficient concurrent requests
-4. **Connection pooling** will be added in future versions
-
-## Troubleshooting
-
-### Linker Errors on Windows
-
-Ensure `ws2_32.lib` is linked (handled automatically by CMake).
-
-### Port Already in Use
-
-If server fails to start:
-```cpp
-server.set_port(8081);  // Try different port
-```
-
-### Connection Refused
-
-For server/client integration:
-- Server binds to `127.0.0.1` (loopback)
-- Use `127.0.0.1` in URLs, not `localhost`
-- Allow sufficient time for server to start
-
-### "result not found" Error
-
-Make sure to include the library:
-```cpp
-#include <http/http.hpp>
-```
-
 ## License
 
 MIT License - see LICENSE file for details.
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues.
-
 ## Roadmap
 
 ### Client
-- [ ] HTTPS/TLS support
-- [ ] HTTP/2 support
-- [ ] Connection pooling
-- [ ] Request/response compression
-- [ ] Cookie management
-- [ ] Proxy support
-- [ ] Streaming uploads/downloads
+- HTTPS/TLS support
+- HTTP/2 support
+- Connection pooling
+- Request/response compression
 
 ### Server
-- [ ] Path parameter extraction (`/users/:id`)
-- [ ] Middleware support
-- [ ] Static file serving
-- [ ] WebSocket support
-- [ ] Request body size limits
-- [ ] Rate limiting
-- [ ] CORS support
-- [ ] Session management
-
-## Credits
-
-Designed for high-performance C++20 applications with a focus on simplicity and type safety.
+- Path parameter extraction (`/users/:id`)
+- Middleware support
+- Static file serving
+- WebSocket support
