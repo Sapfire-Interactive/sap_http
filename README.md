@@ -181,6 +181,7 @@ bool has_auth = h.has("Authorization");
 ### HTTP Server
 
 #### Server Configuration
+#### Server Configuration
 
 ```cpp
 sap::http::ServerConfig config;
