@@ -1,8 +1,8 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 #include <gtest/gtest.h>
 
 TEST(ClientTest, InvalidUrlGet) {
-  auto future = http::Client::get("not-a-valid-url");
+  auto future = sap::http::Client::get("not-a-valid-url");
   auto result = future.get();
 
   EXPECT_FALSE(result.has_value());
@@ -10,7 +10,7 @@ TEST(ClientTest, InvalidUrlGet) {
 }
 
 TEST(ClientTest, InvalidUrlPost) {
-  auto future = http::Client::post("not-a-valid-url", "body");
+  auto future = sap::http::Client::post("not-a-valid-url", "body");
   auto result = future.get();
 
   EXPECT_FALSE(result.has_value());

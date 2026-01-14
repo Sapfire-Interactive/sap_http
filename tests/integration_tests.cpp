@@ -1,8 +1,8 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 #include <gtest/gtest.h>
 
 TEST(IntegrationTest, HttpBinGet) {
-  auto future = http::Client::get("http://httpbingo.org/get");
+  auto future = sap::http::Client::get("http://httpbingo.org/get");
   auto result = future.get();
 
   ASSERT_TRUE(result.has_value());
@@ -14,7 +14,7 @@ TEST(IntegrationTest, HttpBinGet) {
 
 TEST(IntegrationTest, HttpBinPost) {
   auto future =
-      http::Client::post("http://httpbingo.org/post", R"({"test": "data"})");
+      sap::http::Client::post("http://httpbingo.org/post", R"({"test": "data"})");
   auto result = future.get();
 
   ASSERT_TRUE(result.has_value());
@@ -24,7 +24,7 @@ TEST(IntegrationTest, HttpBinPost) {
 }
 
 TEST(IntegrationTest, HttpBinStatus404) {
-  auto future = http::Client::get("http://httpbingo.org/status/404");
+  auto future = sap::http::Client::get("http://httpbingo.org/status/404");
   auto result = future.get();
 
   ASSERT_TRUE(result.has_value());
@@ -34,13 +34,13 @@ TEST(IntegrationTest, HttpBinStatus404) {
 }
 
 TEST(IntegrationTest, HttpBinHeaders) {
-  auto url_result = http::URL::parse("http://httpbingo.org/headers");
+  auto url_result = sap::http::URL::parse("http://httpbingo.org/headers");
   ASSERT_TRUE(url_result.has_value());
 
-  http::Request req(http::EMethod::GET, std::move(url_result.value()));
+  sap::http::Request req(sap::http::EMethod::GET, std::move(url_result.value()));
   req.set_header("X-Custom-Header", "test-value");
 
-  auto future = http::Client::async_send(std::move(req));
+  auto future = sap::http::Client::async_send(std::move(req));
   auto result = future.get();
 
   ASSERT_TRUE(result.has_value());
@@ -48,17 +48,17 @@ TEST(IntegrationTest, HttpBinHeaders) {
 }
 
 TEST(IntegrationTest, ServerClientIntegration) {
-  http::ServerConfig cfg{-1, 9999};
-  http::Server server{std::move(cfg)};
-  server.route("/test", http::EMethod::GET, [](const http::Request &) {
-    return http::Response(200, "Integration test response");
+  sap::http::ServerConfig cfg{-1, 9999};
+  sap::http::Server server{std::move(cfg)};
+  server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request &) {
+    return sap::http::Response(200, "Integration test response");
   });
   auto start_result = server.start();
   ASSERT_TRUE(start_result.has_value())
       << "Server failed to start: " << start_result.error();
   std::thread server_thread([&server]() { server.run(); });
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  auto future = http::Client::get("http://127.0.0.1:9999/test");
+  auto future = sap::http::Client::get("http://127.0.0.1:9999/test");
   auto result = future.get();
   server.stop();
   server_thread.join();
@@ -69,11 +69,11 @@ TEST(IntegrationTest, ServerClientIntegration) {
 }
 
 TEST(IntegrationTest, ServerPostRequest) {
-  http::ServerConfig cfg{-1, 10000};
-  http::Server server{std::move(cfg)};
-  server.route("/api/echo", http::EMethod::POST,
-               [](const http::Request &req) {
-                 http::Response resp(200, req.body);
+  sap::http::ServerConfig cfg{-1, 10000};
+  sap::http::Server server{std::move(cfg)};
+  server.route("/api/echo", sap::http::EMethod::POST,
+               [](const sap::http::Request &req) {
+                 sap::http::Response resp(200, req.body);
                  resp.headers.set("Content-Type", "application/json");
                  return resp;
                });
@@ -82,7 +82,7 @@ TEST(IntegrationTest, ServerPostRequest) {
       << "Server failed to start: " << start_result.error();
   std::thread server_thread([&server]() { server.run(); });
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  auto future = http::Client::post("http://127.0.0.1:10000/api/echo",
+  auto future = sap::http::Client::post("http://127.0.0.1:10000/api/echo",
                                    R"({"test": "data"})");
   auto result = future.get();
   server.stop();

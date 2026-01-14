@@ -1,8 +1,8 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 #include <gtest/gtest.h>
 
 TEST(ResponseTest, IsSuccessFor2xx) {
-  http::Response resp;
+  sap::http::Response resp;
   resp.status_code = 200;
   EXPECT_TRUE(resp.is_success());
 
@@ -17,7 +17,7 @@ TEST(ResponseTest, IsSuccessFor2xx) {
 }
 
 TEST(ResponseTest, IsSuccessForNon2xx) {
-  http::Response resp;
+  sap::http::Response resp;
   resp.status_code = 199;
   EXPECT_FALSE(resp.is_success());
 
@@ -32,7 +32,7 @@ TEST(ResponseTest, IsSuccessForNon2xx) {
 }
 
 TEST(ResponseTest, ConstructorWithBody) {
-  http::Response resp(200, "Hello World");
+  sap::http::Response resp(200, "Hello World");
   EXPECT_EQ(resp.status_code, 200);
   EXPECT_EQ(resp.body, "Hello World");
   EXPECT_EQ(resp.headers.get("Content-Length"), "11");

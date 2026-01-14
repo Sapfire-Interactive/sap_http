@@ -33,7 +33,7 @@ sudo cmake --install build
 #include <iostream>
 
 int main() {
-    auto future = http::Client::get("http://example.com/api");
+    auto future = sap::http::Client::get("http://example.com/api");
     auto result = future.get();
     
     if (result) {
@@ -54,17 +54,17 @@ int main() {
 #include <iostream>
 
 int main() {
-    http::Server server;
+    sap::http::Server server;
     server.set_port(8080).multithreaded();
     
     // Add routes
-    server.route("/", http::EMethod::GET, [](const http::ServerRequest& req) {
-        return http::Response(200, "Hello, World!");
+    server.route("/", sap::http::EMethod::GET, [](const sap::http::ServerRequest& req) {
+        return sap::http::Response(200, "Hello, World!");
     });
     
-    server.route("/api/data", http::EMethod::POST, [](const http::ServerRequest& req) {
+    server.route("/api/data", sap::http::EMethod::POST, [](const sap::http::ServerRequest& req) {
         // Echo the request body
-        http::Response resp(200, req.body);
+        sap::http::Response resp(200, req.body);
         resp.headers.set("Content-Type", "application/json");
         return resp;
     });
@@ -109,22 +109,22 @@ target_link_libraries(my_app PRIVATE sap::http)
 
 ```cpp
 // GET request
-auto future = http::Client::get("http://api.example.com/users");
+auto future = sap::http::Client::get("http://api.example.com/users");
 auto result = future.get();
 
 // POST request with JSON
 std::string json = R"({"name": "John", "age": 30})";
-auto future = http::Client::post("http://api.example.com/users", json);
+auto future = sap::http::Client::post("http://api.example.com/users", json);
 
 // Custom request with headers
-auto url_result = http::URL::parse("http://api.example.com/resource");
+auto url_result = sap::http::URL::parse("http://api.example.com/resource");
 if (url_result) {
-    http::Request req(http::EMethod::PUT, std::move(url_result.value()));
+    sap::http::Request req(sap::http::EMethod::PUT, std::move(url_result.value()));
     req.set_header("Authorization", "Bearer token123");
     req.set_header("Content-Type", "application/json");
     req.set_body(R"({"status": "updated"})");
     
-    auto future = http::Client::async_send(std::move(req));
+    auto future = sap::http::Client::async_send(std::move(req));
     auto result = future.get();
 }
 ```
@@ -143,14 +143,14 @@ enum class EMethod {
 };
 
 // Convert to/from string
-std::string method_str = http::method_to_string(http::EMethod::POST);  // "POST"
-http::EMethod method = http::string_to_method("GET");  // EMethod::GET
+std::string method_str = sap::http::method_to_string(sap::http::EMethod::POST);  // "POST"
+sap::http::EMethod method = sap::http::string_to_method("GET");  // EMethod::GET
 ```
 
 #### URL Parsing
 
 ```cpp
-auto result = http::URL::parse("http://example.com:8080/path?query=value");
+auto result = sap::http::URL::parse("http://example.com:8080/path?query=value");
 if (result) {
     auto& url = result.value();
     std::cout << "Scheme: " << url.scheme << '\n';  // "http"
@@ -164,7 +164,7 @@ if (result) {
 #### Headers Management
 
 ```cpp
-http::Headers h;
+sap::http::Headers h;
 h.set("Content-Type", "application/json");
 h.set("Authorization", "Bearer token");
 
@@ -178,7 +178,7 @@ bool has_auth = h.has("Authorization");
 All client operations return `stl::result<T>`:
 
 ```cpp
-auto result = http::Client::get("http://example.com").get();
+auto result = sap::http::Client::get("http://example.com").get();
 
 // Check if request succeeded
 if (result.has_value()) {
@@ -200,11 +200,11 @@ if (result.has_value()) {
 
 ```cpp
 // Launch multiple requests concurrently
-std::vector<std::future<stl::result<http::Response>>> futures;
+std::vector<std::future<stl::result<sap::http::Response>>> futures;
 
-futures.push_back(http::Client::get("http://api.example.com/users"));
-futures.push_back(http::Client::get("http://api.example.com/posts"));
-futures.push_back(http::Client::get("http://api.example.com/comments"));
+futures.push_back(sap::http::Client::get("http://api.example.com/users"));
+futures.push_back(sap::http::Client::get("http://api.example.com/posts"));
+futures.push_back(sap::http::Client::get("http://api.example.com/comments"));
 
 // Wait for all to complete
 for (auto& future : futures) {
@@ -220,7 +220,7 @@ for (auto& future : futures) {
 #### Creating a Server
 
 ```cpp
-http::Server server;
+sap::http::Server server;
 
 // Configure
 server.set_port(8080)      // Set port (default: 8080)
@@ -244,26 +244,26 @@ std::thread server_thread([&server]() {
 
 ```cpp
 // Simple GET endpoint
-server.route("/health", http::EMethod::GET, [](const http::ServerRequest& req) {
-    return http::Response(200, R"({"status": "healthy"})");
+server.route("/health", sap::http::EMethod::GET, [](const sap::http::ServerRequest& req) {
+    return sap::http::Response(200, R"({"status": "healthy"})");
 });
 
 // POST with request processing
-server.route("/api/users", http::EMethod::POST, [](const http::ServerRequest& req) {
+server.route("/api/users", sap::http::EMethod::POST, [](const sap::http::ServerRequest& req) {
     // Access request data
     std::string body = req.body;
     std::string content_type = req.headers.get("Content-Type");
     
     // Create response
-    http::Response resp(201, R"({"id": 123, "created": true})");
+    sap::http::Response resp(201, R"({"id": 123, "created": true})");
     resp.headers.set("Content-Type", "application/json");
     resp.headers.set("Location", "/api/users/123");
     return resp;
 });
 
 // DELETE endpoint
-server.route("/api/users", http::EMethod::DELETE, [](const http::ServerRequest& req) {
-    return http::Response(204);  // No content
+server.route("/api/users", sap::http::EMethod::DELETE, [](const sap::http::ServerRequest& req) {
+    return sap::http::Response(204);  // No content
 });
 ```
 
@@ -284,10 +284,10 @@ struct ServerRequest {
 
 ```cpp
 // Simple response
-http::Response resp(200, "Hello World");
+sap::http::Response resp(200, "Hello World");
 
 // Response with custom headers
-http::Response resp(201, R"({"id": 1})");
+sap::http::Response resp(201, R"({"id": 1})");
 resp.headers.set("Content-Type", "application/json");
 resp.headers.set("X-Custom-Header", "value");
 
@@ -317,11 +317,11 @@ struct Database {
 
 int main() {
     Database db;
-    http::Server server;
+    sap::http::Server server;
     server.set_port(8000).multithreaded();
     
     // GET /api/users - List all users
-    server.route("/api/users", http::EMethod::GET, [&db](const http::ServerRequest&) {
+    server.route("/api/users", sap::http::EMethod::GET, [&db](const sap::http::ServerRequest&) {
         std::lock_guard<std::mutex> lock(db.mtx);
         
         std::string json = "[";
@@ -333,13 +333,13 @@ int main() {
         }
         json += "]";
         
-        http::Response resp(200, json);
+        sap::http::Response resp(200, json);
         resp.headers.set("Content-Type", "application/json");
         return resp;
     });
     
     // POST /api/users - Create user
-    server.route("/api/users", http::EMethod::POST, [&db](const http::ServerRequest& req) {
+    server.route("/api/users", sap::http::EMethod::POST, [&db](const sap::http::ServerRequest& req) {
         std::lock_guard<std::mutex> lock(db.mtx);
         
         // Parse name from JSON (simplified)
@@ -351,16 +351,16 @@ int main() {
         std::string response = R"({"id":)" + std::to_string(id) + 
                               R"(,"name":")" + name + R"(","created":true})";
         
-        http::Response resp(201, response);
+        sap::http::Response resp(201, response);
         resp.headers.set("Content-Type", "application/json");
         return resp;
     });
     
     // DELETE /api/users - Delete all users
-    server.route("/api/users", http::EMethod::DELETE, [&db](const http::ServerRequest&) {
+    server.route("/api/users", sap::http::EMethod::DELETE, [&db](const sap::http::ServerRequest&) {
         std::lock_guard<std::mutex> lock(db.mtx);
         db.users.clear();
-        return http::Response(204);  // No content
+        return sap::http::Response(204);  // No content
     });
     
     std::cout << "Starting REST API server on port 8000...\n";
@@ -386,11 +386,11 @@ int main() {
         "http://api.example.com/endpoint3"
     };
     
-    std::vector<std::future<stl::result<http::Response>>> futures;
+    std::vector<std::future<stl::result<sap::http::Response>>> futures;
     
     // Launch all requests asynchronously
     for (const auto& url : urls) {
-        futures.push_back(http::Client::get(url));
+        futures.push_back(sap::http::Client::get(url));
     }
     
     // Collect results
@@ -416,18 +416,18 @@ int main() {
 #include <string>
 
 int main() {
-    http::Server server;
+    sap::http::Server server;
     server.set_port(8000).multithreaded();
     
     // Health check
-    server.route("/health", http::EMethod::GET, [](const http::ServerRequest&) {
-        http::Response resp(200, R"({"status":"healthy","model_loaded":true})");
+    server.route("/health", sap::http::EMethod::GET, [](const sap::http::ServerRequest&) {
+        sap::http::Response resp(200, R"({"status":"healthy","model_loaded":true})");
         resp.headers.set("Content-Type", "application/json");
         return resp;
     });
     
     // Chat endpoint
-    server.route("/chat", http::EMethod::POST, [](const http::ServerRequest& req) {
+    server.route("/chat", sap::http::EMethod::POST, [](const sap::http::ServerRequest& req) {
         try {
             // In production, parse JSON from req.body
             std::string text = req.body;
@@ -439,13 +439,13 @@ int main() {
                 "conversation_id": "conv_123"
             })";
             
-            http::Response resp(200, response_json);
+            sap::http::Response resp(200, response_json);
             resp.headers.set("Content-Type", "application/json");
             return resp;
             
         } catch (const std::exception& e) {
             std::string error = R"({"error":")" + std::string(e.what()) + R"("})";
-            http::Response resp(500, error);
+            sap::http::Response resp(500, error);
             resp.headers.set("Content-Type", "application/json");
             return resp;
         }
@@ -473,18 +473,18 @@ int main() {
         "age": 30
     })";
     
-    auto url_result = http::URL::parse("http://api.example.com/users");
+    auto url_result = sap::http::URL::parse("http://api.example.com/users");
     if (!url_result) {
         std::cerr << "Invalid URL\n";
         return 1;
     }
     
-    http::Request req(http::EMethod::POST, std::move(url_result.value()));
+    sap::http::Request req(sap::http::EMethod::POST, std::move(url_result.value()));
     req.set_header("Content-Type", "application/json");
     req.set_header("Authorization", "Bearer your_token");
     req.set_body(std::move(json_data));
     
-    auto future = http::Client::async_send(std::move(req));
+    auto future = sap::http::Client::async_send(std::move(req));
     auto result = future.get();
     
     if (result) {
@@ -505,14 +505,14 @@ int main() {
 #include <fstream>
 
 int main() {
-    auto url_result = http::URL::parse("http://example.com/data.json");
+    auto url_result = sap::http::URL::parse("http://example.com/data.json");
     if (!url_result) return 1;
     
-    http::Request req(http::EMethod::GET, std::move(url_result.value()));
+    sap::http::Request req(sap::http::EMethod::GET, std::move(url_result.value()));
     req.set_header("Accept", "application/json");
     req.set_header("User-Agent", "MyApp/1.0");
     
-    auto future = http::Client::async_send(std::move(req));
+    auto future = sap::http::Client::async_send(std::move(req));
     auto result = future.get();
     
     if (result && result.value().is_success()) {

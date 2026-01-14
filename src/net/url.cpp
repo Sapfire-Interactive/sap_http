@@ -1,6 +1,6 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 
-namespace http {
+namespace sap::http {
 
 URL URL::from_path(std::string_view path_and_query) {
   URL u;
@@ -54,4 +54,4 @@ stl::result<URL> URL::parse(std::string_view raw_url) {
   }
   return u;
 }
-} // namespace http
+} // namespace sap::http

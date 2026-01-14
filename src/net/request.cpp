@@ -1,8 +1,8 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 
-namespace http {
+namespace sap::http {
 
-Request::Request(http::EMethod m, http::URL u) : method(m), url(std::move(u)) {
+Request::Request(sap::http::EMethod m, sap::http::URL u) : method(m), url(std::move(u)) {
   // Set default headers for client requests if scheme/host are present
   if (!url.host.empty()) {
     headers.set("User-Agent", "cpp-http/1.0");
@@ -21,4 +21,4 @@ void Request::set_body(std::string data) {
   }
 }
 
-} // namespace http
+} // namespace sap::http

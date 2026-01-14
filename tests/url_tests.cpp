@@ -1,8 +1,8 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 #include <gtest/gtest.h>
 
 TEST(UrlTest, ParseBasicHttp) {
-  auto result = http::URL::parse("http://example.com/path");
+  auto result = sap::http::URL::parse("http://example.com/path");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -14,7 +14,7 @@ TEST(UrlTest, ParseBasicHttp) {
 }
 
 TEST(UrlTest, ParseHttpsWithDefaultPort) {
-  auto result = http::URL::parse("https://secure.example.com/api");
+  auto result = sap::http::URL::parse("https://secure.example.com/api");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -25,7 +25,7 @@ TEST(UrlTest, ParseHttpsWithDefaultPort) {
 }
 
 TEST(UrlTest, ParseWithCustomPort) {
-  auto result = http::URL::parse("http://example.com:8080/path");
+  auto result = sap::http::URL::parse("http://example.com:8080/path");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -34,7 +34,7 @@ TEST(UrlTest, ParseWithCustomPort) {
 }
 
 TEST(UrlTest, ParseWithQuery) {
-  auto result = http::URL::parse("http://example.com/search?q=test&page=1");
+  auto result = sap::http::URL::parse("http://example.com/search?q=test&page=1");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -43,7 +43,7 @@ TEST(UrlTest, ParseWithQuery) {
 }
 
 TEST(UrlTest, ParseQueryWithoutPath) {
-  auto result = http::URL::parse("http://example.com?query=value");
+  auto result = sap::http::URL::parse("http://example.com?query=value");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -52,7 +52,7 @@ TEST(UrlTest, ParseQueryWithoutPath) {
 }
 
 TEST(UrlTest, ParseRootPath) {
-  auto result = http::URL::parse("http://example.com/");
+  auto result = sap::http::URL::parse("http://example.com/");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -60,7 +60,7 @@ TEST(UrlTest, ParseRootPath) {
 }
 
 TEST(UrlTest, ParseNoPath) {
-  auto result = http::URL::parse("http://example.com");
+  auto result = sap::http::URL::parse("http://example.com");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -68,7 +68,7 @@ TEST(UrlTest, ParseNoPath) {
 }
 
 TEST(UrlTest, ParseIPAddress) {
-  auto result = http::URL::parse("http://192.168.1.1:3000/api");
+  auto result = sap::http::URL::parse("http://192.168.1.1:3000/api");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -77,7 +77,7 @@ TEST(UrlTest, ParseIPAddress) {
 }
 
 TEST(UrlTest, ParseLocalhost) {
-  auto result = http::URL::parse("http://localhost:5000/test");
+  auto result = sap::http::URL::parse("http://localhost:5000/test");
   ASSERT_TRUE(result.has_value());
 
   auto &url = result.value();
@@ -86,36 +86,36 @@ TEST(UrlTest, ParseLocalhost) {
 }
 
 TEST(UrlTest, FullPathWithoutQuery) {
-  auto result = http::URL::parse("http://example.com/api/v1/users");
+  auto result = sap::http::URL::parse("http://example.com/api/v1/users");
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result.value().full_path(), "/api/v1/users");
 }
 
 TEST(UrlTest, FullPathWithQuery) {
-  auto result = http::URL::parse("http://example.com/search?q=test");
+  auto result = sap::http::URL::parse("http://example.com/search?q=test");
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result.value().full_path(), "/search?q=test");
 }
 
 TEST(UrlTest, InvalidUrlNoScheme) {
-  auto result = http::URL::parse("example.com/path");
+  auto result = sap::http::URL::parse("example.com/path");
   EXPECT_FALSE(result.has_value());
   EXPECT_TRUE(result.has_error());
 }
 
 TEST(UrlTest, InvalidUrlEmptyString) {
-  auto result = http::URL::parse("");
+  auto result = sap::http::URL::parse("");
   EXPECT_FALSE(result.has_value());
 }
 
 TEST(UrlTest, ParseComplexPath) {
-  auto result = http::URL::parse("http://example.com/api/v1/users/123/profile");
+  auto result = sap::http::URL::parse("http://example.com/api/v1/users/123/profile");
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result.value().path, "/api/v1/users/123/profile");
 }
 
 TEST(UrlTest, ParseMultipleQueryParams) {
-  auto result = http::URL::parse(
+  auto result = sap::http::URL::parse(
       "http://example.com/search?q=test&page=2&limit=10&sort=asc");
   ASSERT_TRUE(result.has_value());
 

@@ -1,4 +1,4 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 #include <cstring>
 
 #ifdef _WIN32
@@ -13,7 +13,7 @@
 #include <unistd.h>
 #endif
 
-namespace http {
+namespace sap::http {
 
 // Parse incoming request and create a Request object
 static stl::result<Request> parse_request(const std::string &raw_request) {
@@ -151,9 +151,9 @@ stl::result<> Server::start() {
   if (m_Config.server_socket < 0) {
 #ifdef _WIN32
     i32 err = WSAGetLastError();
-    return stl::make_error<>("Failed to create socket: " + std::to_string(err));
+    return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
 #else
-    return stl::make_error<>("Failed to create socket: " +
+    return stl::make_error<>("Failed to create socket: {}",
                              std::string(strerror(errno)));
 #endif
   }
@@ -168,13 +168,13 @@ stl::result<> Server::start() {
 #ifdef _WIN32
     i32 err = WSAGetLastError();
     closesocket(m_Config.server_socket);
-    return stl::make_error<>("Failed to bind to port " +
-                             std::to_string(m_Config.port) + ": " +
+    return stl::make_error<>("Failed to bind to port {}: {}",
+                             std::to_string(m_Config.port),
                              std::to_string(err));
 #else
     close(m_Config.server_socket);
-    return stl::make_error<>("Failed to bind to port " +
-                             std::to_string(m_Config.port) + ": " +
+    return stl::make_error<>("Failed to bind to port {}: {}",
+                             std::to_string(m_Config.port),
                              std::string(strerror(errno)));
 #endif
   }
@@ -182,10 +182,10 @@ stl::result<> Server::start() {
 #ifdef _WIN32
     i32 err = WSAGetLastError();
     closesocket(m_Config.server_socket);
-    return stl::make_error<>("Failed to listen: " + std::to_string(err));
+    return stl::make_error<>("Failed to listen: {}", std::to_string(err));
 #else
     close(m_Config.server_socket);
-    return stl::make_error<>("Failed to listen: " +
+    return stl::make_error<>("Failed to listen: {}",
                              std::string(strerror(errno)));
 #endif
   }
@@ -243,4 +243,4 @@ void Server::stop() {
   }
 }
 
-} // namespace http
+} // namespace sap::http

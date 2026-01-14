@@ -1,4 +1,4 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 #include <cstring>
 
 #ifdef _WIN32
@@ -12,7 +12,7 @@
 #include <unistd.h>
 #endif
 
-namespace http {
+namespace sap::http {
 
 stl::result<int> Client::connect_socket(const URL &u) {
   struct addrinfo hints{}, *res = nullptr;
@@ -22,10 +22,10 @@ stl::result<int> Client::connect_socket(const URL &u) {
   i32 gai_result = getaddrinfo(u.host.c_str(), u.port.c_str(), &hints, &res);
   if (gai_result != 0) {
 #ifdef _WIN32
-    return stl::make_error<i32>("Failed to resolve host " + u.host + ": " +
+    return stl::make_error<i32>("Failed to resolve host {}: {}", u.host,
                                 std::to_string(WSAGetLastError()));
 #else
-    return stl::make_error<i32>("Failed to resolve host " + u.host + ": " +
+    return stl::make_error<i32>("Failed to resolve host {}: {}", u.host,
                                 std::string(gai_strerror(gai_result)));
 #endif
   }
@@ -50,11 +50,9 @@ stl::result<int> Client::connect_socket(const URL &u) {
   if (sock < 0) {
 #ifdef _WIN32
     i32 err = WSAGetLastError();
-    return stl::make_error<i32>("Failed to connect to " + u.host + ":" +
-                                u.port + " - " + std::to_string(err));
+    return stl::make_error<i32>("Failed to connect to {}:{} - {}", u.host, u.port, std::to_string(err));
 #else
-    return stl::make_error<i32>("Failed to connect to " + u.host + ":" +
-                                u.port + " - " + std::string(strerror(errno)));
+    return stl::make_error<i32>("Failed to connect to {}:{} - {}", u.host, u.port, std::string(strerror(errno)));
 #endif
   }
   return sock;
@@ -161,7 +159,7 @@ std::future<stl::result<Response>> Client::async_send(Request req) {
                     [req = std::move(req)]() -> stl::result<Response> {
                       auto sock_result = connect_socket(req.url);
                       if (!sock_result) {
-                        return stl::make_error<Response>(sock_result.error());
+                        return stl::make_error<Response>("{}", sock_result.error());
                       }
                       int sock = sock_result.value();
                       auto send_result = send_request(sock, req);
@@ -171,7 +169,7 @@ std::future<stl::result<Response>> Client::async_send(Request req) {
 #else
             close(sock);
 #endif
-                        return stl::make_error<Response>(send_result.error());
+                        return stl::make_error<Response>("{}", send_result.error());
                       }
                       auto resp_result = read_response(sock);
 
@@ -193,7 +191,7 @@ std::future<stl::result<Response>> Client::get(std::string_view url_str) {
   auto url_result = URL::parse(url_str);
   if (!url_result) {
     std::promise<stl::result<Response>> p;
-    p.set_value(stl::make_error<Response>(url_result.error()));
+    p.set_value(stl::make_error<Response>("{}", url_result.error()));
     return p.get_future();
   }
   return async_send(Request(EMethod::GET, std::move(url_result.value())));
@@ -204,7 +202,7 @@ std::future<stl::result<Response>> Client::post(std::string_view url_str,
   auto url_result = URL::parse(url_str);
   if (!url_result) {
     std::promise<stl::result<Response>> p;
-    p.set_value(stl::make_error<Response>(url_result.error()));
+    p.set_value(stl::make_error<Response>("{}", url_result.error()));
     return p.get_future();
   }
   Request req(EMethod::POST, std::move(url_result.value()));
@@ -212,4 +210,4 @@ std::future<stl::result<Response>> Client::post(std::string_view url_str,
   return async_send(std::move(req));
 }
 
-} // namespace http
+} // namespace sap::http

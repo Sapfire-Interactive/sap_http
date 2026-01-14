@@ -1,14 +1,14 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 #include <gtest/gtest.h>
 
 TEST(HeadersTest, SetAndGet) {
-  http::Headers h;
+  sap::http::Headers h;
   h.set("Content-Type", "application/json");
   EXPECT_EQ(h.get("Content-Type"), "application/json");
 }
 
 TEST(HeadersTest, CaseInsensitiveGet) {
-  http::Headers h;
+  sap::http::Headers h;
   h.set("Content-Type", "application/json");
   EXPECT_EQ(h.get("content-type"), "application/json");
   EXPECT_EQ(h.get("CONTENT-TYPE"), "application/json");
@@ -16,19 +16,19 @@ TEST(HeadersTest, CaseInsensitiveGet) {
 }
 
 TEST(HeadersTest, CaseInsensitiveSet) {
-  http::Headers h;
+  sap::http::Headers h;
   h.set("Content-Type", "text/html");
   h.set("content-type", "application/json");
   EXPECT_EQ(h.get("Content-Type"), "application/json");
 }
 
 TEST(HeadersTest, GetNonExistent) {
-  http::Headers h;
+  sap::http::Headers h;
   EXPECT_EQ(h.get("NonExistent"), "");
 }
 
 TEST(HeadersTest, HasHeader) {
-  http::Headers h;
+  sap::http::Headers h;
   h.set("Authorization", "Bearer token");
   EXPECT_TRUE(h.has("Authorization"));
   EXPECT_TRUE(h.has("authorization"));
@@ -36,7 +36,7 @@ TEST(HeadersTest, HasHeader) {
 }
 
 TEST(HeadersTest, MultipleHeaders) {
-  http::Headers h;
+  sap::http::Headers h;
   h.set("Content-Type", "application/json");
   h.set("Authorization", "Bearer token");
   h.set("Accept", "*/*");
@@ -47,7 +47,7 @@ TEST(HeadersTest, MultipleHeaders) {
 }
 
 TEST(HeadersTest, OverwriteHeader) {
-  http::Headers h;
+  sap::http::Headers h;
   h.set("Content-Type", "text/html");
   EXPECT_EQ(h.get("Content-Type"), "text/html");
 
@@ -56,7 +56,7 @@ TEST(HeadersTest, OverwriteHeader) {
 }
 
 TEST(HeadersTest, EmptyValue) {
-  http::Headers h;
+  sap::http::Headers h;
   h.set("Empty-Header", "");
   EXPECT_TRUE(h.has("Empty-Header"));
   EXPECT_EQ(h.get("Empty-Header"), "");

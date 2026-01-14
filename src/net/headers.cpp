@@ -1,6 +1,6 @@
-#include "net/http.h"
+#include "sap_http/net/http.h"
 
-namespace http {
+namespace sap::http {
 
 void Headers::set(std::string_view key, std::string_view value) {
   std::string lower_key(key);
@@ -23,4 +23,4 @@ bool Headers::has(std::string_view key) const {
                  ::tolower);
   return data.find(lower_key) != data.end();
 }
-} // namespace http
+} // namespace sap::http

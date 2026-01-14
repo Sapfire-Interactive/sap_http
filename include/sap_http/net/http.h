@@ -1,7 +1,7 @@
 #pragma once
 
-#include "result.h"
-#include "types.h"
+#include <sap_core/result.h>
+#include <sap_core/types.h>
 #include <algorithm>
 #include <chrono>
 #include <future>
@@ -10,7 +10,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
-namespace http {
+namespace sap::http {
 
 enum class EMethod { GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS };
 
@@ -83,7 +83,7 @@ struct Request {
   std::map<std::string, std::string> params;
 
   Request() = default;
-  Request(http::EMethod m, http::URL u);
+  Request(sap::http::EMethod m, sap::http::URL u);
 
   void set_header(std::string_view key, std::string_view value);
   void set_body(std::string data);
@@ -158,4 +158,4 @@ private:
   std::vector<std::thread> m_WorkerThreads;
 };
 
-} // namespace http
+} // namespace sap::http
