@@ -173,7 +173,9 @@ namespace sap::http {
         setsockopt(m_Config.server_socket, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (inet_pton(AF_INET, m_Config.host.c_str(), &addr.sin_addr) != 1) {
+            return stl::make_error<>("Invalid host address: {}", m_Config.host);
+        }
         addr.sin_port = htons(m_Config.port);
         if (bind(m_Config.server_socket, (sockaddr*)&addr, sizeof(addr)) < 0) {
 #ifdef _WIN32

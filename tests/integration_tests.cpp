@@ -48,7 +48,7 @@ TEST(IntegrationTest, HttpBinHeaders) {
 }
 
 TEST(IntegrationTest, ServerClientIntegration) {
-  sap::http::ServerConfig cfg{-1, 9999};
+  sap::http::ServerConfig cfg{-1, "127.0.0.1", 9999};
   sap::http::Server server{std::move(cfg)};
   server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request &) {
     return sap::http::Response(200, "Integration test response");
@@ -69,7 +69,7 @@ TEST(IntegrationTest, ServerClientIntegration) {
 }
 
 TEST(IntegrationTest, ServerPostRequest) {
-  sap::http::ServerConfig cfg{-1, 10000};
+  sap::http::ServerConfig cfg{-1, "127.0.0.1", 10000};
   sap::http::Server server{std::move(cfg)};
   server.route("/api/echo", sap::http::EMethod::POST,
                [](const sap::http::Request &req) {

@@ -126,6 +126,7 @@ struct Route {
 
 struct ServerConfig {
   i32 server_socket{-1};
+  std::string host{"127.0.0.1"};
   u16 port{8080};
   bool is_multithreaded{false};
 };
