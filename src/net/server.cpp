@@ -1,6 +1,5 @@
 #include "sap_http/net/http.h"
 #include <cstring>
-#include "sap_http/net/http.h"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -14,14 +13,16 @@
 #include <unistd.h>
 #endif
 
-namespace sap::http {
-namespace sap::http {
+namespace sap::http
+{
 
     // Parse incoming request and create a Request object
-    static stl::result<Request> parse_request(const std::string& raw_request) {
+    static stl::result<Request> parse_request(const std::string &raw_request)
+    {
         std::istringstream stream(raw_request);
         std::string line;
-        if (!std::getline(stream, line)) {
+        if (!std::getline(stream, line))
+        {
             return stl::make_error<Request>("Empty request");
         }
 
@@ -35,11 +36,13 @@ namespace sap::http {
         Request req(method, URL::from_path(path_str));
 
         // Parse headers
-        while (std::getline(stream, line) && line != "\r" && !line.empty()) {
+        while (std::getline(stream, line) && line != "\r" && !line.empty())
+        {
             if (line.back() == '\r')
                 line.pop_back();
             auto colon = line.find(':');
-            if (colon != std::string::npos) {
+            if (colon != std::string::npos)
+            {
                 auto key = line.substr(0, colon);
                 auto value = line.substr(colon + 1);
                 if (!value.empty() && value[0] == ' ')
@@ -51,10 +54,12 @@ namespace sap::http {
         // Parse body
         std::string body_content;
         std::string body_line;
-        while (std::getline(stream, body_line)) {
+        while (std::getline(stream, body_line))
+        {
             body_content += body_line + "\n";
         }
-        if (!body_content.empty() && body_content.back() == '\n') {
+        if (!body_content.empty() && body_content.back() == '\n')
+        {
             body_content.pop_back();
         }
         req.body = body_content;
@@ -62,10 +67,12 @@ namespace sap::http {
         return req;
     }
 
-    static std::string build_response(const Response& resp) {
+    static std::string build_response(const Response &resp)
+    {
         std::ostringstream ss;
         ss << "HTTP/1.1 " << resp.status_code << " ";
-        switch (resp.status_code) {
+        switch (resp.status_code)
+        {
         case 200:
             ss << "OK";
             break;
@@ -89,11 +96,13 @@ namespace sap::http {
             break;
         }
         ss << "\r\n";
-        for (const auto& [key, value] : resp.headers.data) {
+        for (const auto &[key, value] : resp.headers.data)
+        {
             ss << key << ": " << value << "\r\n";
         }
         ss << "\r\n";
-        if (!resp.body.empty()) {
+        if (!resp.body.empty())
+        {
             ss << resp.body;
         }
         return ss.str();
@@ -103,7 +112,8 @@ namespace sap::http {
 
     Server::~Server() { stop(); }
 
-    void Server::handle_client(i32 client_socket) {
+    void Server::handle_client(i32 client_socket)
+    {
         char buffer[8192];
         std::string request_data;
 #ifdef _WIN32
@@ -111,36 +121,46 @@ namespace sap::http {
 #else
         ssize_t n = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
 #endif
-        if (n > 0) {
+        if (n > 0)
+        {
             buffer[n] = '\0';
             request_data = buffer;
             auto req_result = parse_request(request_data);
             Response resp(404, "Not Found");
-            if (req_result) {
-                auto& req = req_result.value();
+            if (req_result)
+            {
+                auto &req = req_result.value();
                 // Find matching route using URL path with prefix matching
                 // Routes are sorted by specificity (longer paths first)
-                const Route* best_match = nullptr;
+                const Route *best_match = nullptr;
                 size_t best_match_len = 0;
-                for (const auto& route : m_Routes) {
-                    if (route.method == req.method) {
+                for (const auto &route : m_Routes)
+                {
+                    if (route.method == req.method)
+                    {
                         // Check for exact match first
-                        if (route.path == req.url.path) {
+                        if (route.path == req.url.path)
+                        {
                             best_match = &route;
                             break;
                         }
                         // Check for prefix match (route path must be a prefix of request path)
                         if (req.url.path.size() > route.path.size() && req.url.path.substr(0, route.path.size()) == route.path &&
-                            route.path.size() > best_match_len) {
+                            route.path.size() > best_match_len)
+                        {
                             best_match = &route;
                             best_match_len = route.path.size();
                         }
                     }
                 }
-                if (best_match) {
-                    try {
+                if (best_match)
+                {
+                    try
+                    {
                         resp = best_match->handler(req);
-                    } catch (const std::exception& e) {
+                    }
+                    catch (const std::exception &e)
+                    {
                         resp = Response(500, std::string("Error: ") + e.what());
                     }
                 }
@@ -155,66 +175,75 @@ namespace sap::http {
 #endif
     }
 
-    stl::result<> Server::start() {
+    stl::result<> Server::start()
+    {
 #ifdef _WIN32
         WSADATA wsa_data;
-        if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+        if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0)
+        {
             return stl::make_error<>("Failed to initialize Winsock");
         }
 #endif
         m_Config.server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (m_Config.server_socket < 0) {
+        if (m_Config.server_socket < 0)
+        {
 #ifdef _WIN32
-    i32 err = WSAGetLastError();
-    return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
+            i32 err = WSAGetLastError();
+            return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
 #else
-    return stl::make_error<>("Failed to create socket: {}",
-                             std::string(strerror(errno)));
+            return stl::make_error<>("Failed to create socket: {}",
+                                     std::string(strerror(errno)));
 #endif
         }
         i32 opt = 1;
-        setsockopt(m_Config.server_socket, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+        setsockopt(m_Config.server_socket, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
-        if (inet_pton(AF_INET, m_Config.host.c_str(), &addr.sin_addr) != 1) {
+        if (inet_pton(AF_INET, m_Config.host.c_str(), &addr.sin_addr) != 1)
+        {
             return stl::make_error<>("Invalid host address: {}", m_Config.host);
         }
         addr.sin_port = htons(m_Config.port);
-        if (bind(m_Config.server_socket, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        if (bind(m_Config.server_socket, (sockaddr *)&addr, sizeof(addr)) < 0)
+        {
 #ifdef _WIN32
-    i32 err = WSAGetLastError();
-    closesocket(m_Config.server_socket);
-    return stl::make_error<>("Failed to bind to port {}: {}",
-                             std::to_string(m_Config.port),
-                             std::to_string(err));
+            i32 err = WSAGetLastError();
+            closesocket(m_Config.server_socket);
+            return stl::make_error<>("Failed to bind to port {}: {}",
+                                     std::to_string(m_Config.port),
+                                     std::to_string(err));
 #else
-    close(m_Config.server_socket);
-    return stl::make_error<>("Failed to bind to port {}: {}",
-                             std::to_string(m_Config.port),
-                             std::string(strerror(errno)));
+            close(m_Config.server_socket);
+            return stl::make_error<>("Failed to bind to port {}: {}",
+                                     std::to_string(m_Config.port),
+                                     std::string(strerror(errno)));
 #endif
         }
-        if (listen(m_Config.server_socket, 10) < 0) {
+        if (listen(m_Config.server_socket, 10) < 0)
+        {
 #ifdef _WIN32
-    i32 err = WSAGetLastError();
-    closesocket(m_Config.server_socket);
-    return stl::make_error<>("Failed to listen: {}", std::to_string(err));
+            i32 err = WSAGetLastError();
+            closesocket(m_Config.server_socket);
+            return stl::make_error<>("Failed to listen: {}", std::to_string(err));
 #else
-    close(m_Config.server_socket);
-    return stl::make_error<>("Failed to listen: {}",
-                             std::string(strerror(errno)));
+            close(m_Config.server_socket);
+            return stl::make_error<>("Failed to listen: {}",
+                                     std::string(strerror(errno)));
 #endif
         }
         m_IsRunning = true;
         return stl::result_success();
     }
 
-    void Server::run() {
-        while (m_IsRunning.load()) {
+    void Server::run()
+    {
+        while (m_IsRunning.load())
+        {
             sockaddr_in client_addr{};
             socklen_t client_len = sizeof(client_addr);
-            i32 client_socket = accept(m_Config.server_socket, (sockaddr*)&client_addr, &client_len);
-            if (client_socket < 0) {
+            i32 client_socket = accept(m_Config.server_socket, (sockaddr *)&client_addr, &client_len);
+            if (client_socket < 0)
+            {
 #ifdef _WIN32
                 int err = WSAGetLastError();
                 if (!m_IsRunning.load())
@@ -233,17 +262,24 @@ namespace sap::http {
                 continue;
 #endif
             }
-            if (m_Config.is_multithreaded) {
-                std::thread([this, client_socket]() { handle_client(client_socket); }).detach();
-            } else {
+            if (m_Config.is_multithreaded)
+            {
+                std::thread([this, client_socket]()
+                            { handle_client(client_socket); })
+                    .detach();
+            }
+            else
+            {
                 handle_client(client_socket);
             }
         }
     }
 
-    void Server::stop() {
+    void Server::stop()
+    {
         m_IsRunning.store(false);
-        if (m_Config.server_socket >= 0) {
+        if (m_Config.server_socket >= 0)
+        {
 #ifdef _WIN32
             ::shutdown(m_Config.server_socket, SD_BOTH);
             closesocket(m_Config.server_socket);
@@ -256,5 +292,4 @@ namespace sap::http {
         }
     }
 
-} // namespace sap::http
 } // namespace sap::http
