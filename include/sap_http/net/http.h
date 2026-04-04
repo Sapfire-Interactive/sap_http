@@ -129,6 +129,7 @@ struct ServerConfig {
   stl::string host{"127.0.0.1"};
   u16 port{8080};
   bool is_multithreaded{false};
+  u32 timeout_ms = 10000;
   stl::size_t max_header_size{8192};
   stl::size_t max_body_size{1024 * 1024}; // 1MB
 };

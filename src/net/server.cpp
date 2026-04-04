@@ -34,7 +34,7 @@ namespace sap::http {
     }
 
     static stl::result<stl::string> read_body(i32 sock, stl::string& buf, stl::size_t header_end, stl::size_t content_length,
-                                       stl::size_t max_body_bytes) {
+                                              stl::size_t max_body_bytes) {
         if (content_length > max_body_bytes)
             return stl::make_error<stl::string>("Body exceeds max size");
         // We may have already read past the headers into the body
@@ -127,6 +127,11 @@ namespace sap::http {
     Server::~Server() { stop(); }
 
     void Server::handle_client(i32 client_socket) {
+        struct timeval timeout;
+        timeout.tv_sec = m_Config.timeout_ms / 1000;
+        timeout.tv_usec = (m_Config.timeout_ms % 1000) * 1000;
+        setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeval));
+        setsockopt(client_socket, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeval));
         auto header_result = read_header(client_socket, m_Config.max_header_size);
         if (header_result) {
             auto& raw = header_result.value();
