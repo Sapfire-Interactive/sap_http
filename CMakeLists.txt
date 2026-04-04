@@ -43,6 +43,7 @@ set(HTTP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/server.cpp
 )
 
+set(SAP_CORE_BUILD_TESTS ${SAP_HTTP_BUILD_TESTS})
 add_subdirectory(sap_core)
 
 # Shared library
