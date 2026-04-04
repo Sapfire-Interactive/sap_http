@@ -11,20 +11,20 @@ option(SAP_HTTP_BUILD_STATIC "Build static library" ON)
 option(SAP_HTTP_BUILD_TESTS "Build tests" ON)
 option(SAP_HTTP_INSTALL "Install library" ON)
 
-find_package(Git QUIET)
-if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
-    # Update submodules as needed
-    option(GIT_SUBMODULE "Check submodules during build" ON)
-    if(GIT_SUBMODULE)
-        message(STATUS "Submodule update")
-        execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
-                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                        RESULT_VARIABLE GIT_SUBMOD_RESULT)
-        if(NOT GIT_SUBMOD_RESULT EQUAL "0")
-            message(FATAL_ERROR "git submodule update --init --recursive failed with ${GIT_SUBMOD_RESULT}, please checkout submodules")
-        endif()
-    endif()
-endif()
+# find_package(Git QUIET)
+# if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
+#     # Update submodules as needed
+#     option(GIT_SUBMODULE "Check submodules during build" ON)
+#     if(GIT_SUBMODULE)
+#         message(STATUS "Submodule update")
+#         execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
+#                         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+#                         RESULT_VARIABLE GIT_SUBMOD_RESULT)
+#         if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+#             message(FATAL_ERROR "git submodule update --init --recursive failed with ${GIT_SUBMOD_RESULT}, please checkout submodules")
+#         endif()
+#     endif()
+# endif()
 
 if(WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0601)
@@ -43,6 +43,8 @@ set(HTTP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/server.cpp
 )
 
+add_subdirectory(sap_core)
+
 # Shared library
 if(SAP_HTTP_BUILD_SHARED)
     add_library(sap_http_shared SHARED ${HTTP_SOURCES})
@@ -57,6 +59,8 @@ if(SAP_HTTP_BUILD_SHARED)
     if(WIN32)
         target_link_libraries(sap_http_shared PRIVATE ws2_32)
     endif()
+
+    target_link_libraries(sap_http_shared PUBLIC sap::core)
 
     set_target_properties(sap_http_shared PROPERTIES
         OUTPUT_NAME sap_http
@@ -79,6 +83,8 @@ if(SAP_HTTP_BUILD_STATIC)
     if(WIN32)
         target_link_libraries(sap_http_static PRIVATE ws2_32)
     endif()
+
+    target_link_libraries(sap_http_static PUBLIC sap::core)
 
     set_target_properties(sap_http_static PROPERTIES
         OUTPUT_NAME sap_http
