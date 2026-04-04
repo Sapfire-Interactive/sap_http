@@ -122,7 +122,9 @@ namespace sap::http {
         return ss.str();
     }
 
-    Server::Server(ServerConfig cfg) : m_Config(std::move(cfg)), m_Routes(), m_IsRunning(false), m_WorkerThreads() {}
+    Server::Server(ServerConfig cfg) :
+        m_Config(std::move(cfg)), m_Routes(), m_IsRunning(false),
+        m_JobSystem(sap::job_system_config{.thread_count = m_Config.is_multithreaded ? stl::thread::hardware_concurrency() : 0}) {}
 
     Server::~Server() { stop(); }
 
@@ -271,7 +273,12 @@ namespace sap::http {
 #endif
             }
             if (m_Config.is_multithreaded) {
-                std::thread([this, client_socket]() { handle_client(client_socket); }).detach();
+                if (!m_JobSystem.submit([this, client_socket]() { handle_client(client_socket); })) {
+                    // Queue full — reject connection
+                    const char* msg = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
+                    ::send(client_socket, msg, strlen(msg), 0);
+                    close(client_socket);
+                }
             } else {
                 handle_client(client_socket);
             }

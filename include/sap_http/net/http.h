@@ -10,6 +10,8 @@
 #include <sap_core/stl/result.h>
 #include <sap_core/stl/string.h>
 #include <sap_core/stl/vector.h>
+#include <sap_core/job_system.h>
+
 namespace sap::http {
 
 enum class EMethod { GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS };
@@ -159,7 +161,7 @@ private:
   ServerConfig m_Config;
   std::vector<Route> m_Routes;
   std::atomic<bool> m_IsRunning{false};
-  std::vector<std::thread> m_WorkerThreads;
+  sap::job_system m_JobSystem;
 };
 
 } // namespace sap::http
