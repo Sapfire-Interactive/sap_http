@@ -1,6 +1,5 @@
 #pragma once
 
-#include <sap_core/stl/result.h>
 #include <sap_core/types.h>
 #include <algorithm>
 #include <chrono>
@@ -8,6 +7,7 @@
 #include <map>
 #include <sstream>
 
+#include <sap_core/stl/result.h>
 #include <sap_core/stl/string.h>
 #include <sap_core/stl/vector.h>
 namespace sap::http {
@@ -129,6 +129,8 @@ struct ServerConfig {
   stl::string host{"127.0.0.1"};
   u16 port{8080};
   bool is_multithreaded{false};
+  stl::size_t max_header_size{8192};
+  stl::size_t max_body_size{1024 * 1024}; // 1MB
 };
 
 class Server {
