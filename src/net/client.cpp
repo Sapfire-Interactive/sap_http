@@ -26,7 +26,7 @@ stl::result<int> Client::connect_socket(const URL &u) {
                                 std::to_string(WSAGetLastError()));
 #else
     return stl::make_error<i32>("Failed to resolve host {}: {}", u.host,
-                                std::string(gai_strerror(gai_result)));
+                                stl::string(gai_strerror(gai_result)));
 #endif
   }
   i32 sock = -1;
@@ -52,7 +52,7 @@ stl::result<int> Client::connect_socket(const URL &u) {
     i32 err = WSAGetLastError();
     return stl::make_error<i32>("Failed to connect to {}:{} - {}", u.host, u.port, std::to_string(err));
 #else
-    return stl::make_error<i32>("Failed to connect to {}:{} - {}", u.host, u.port, std::string(strerror(errno)));
+    return stl::make_error<i32>("Failed to connect to {}:{} - {}", u.host, u.port, stl::string(strerror(errno)));
 #endif
   }
   return sock;
@@ -70,7 +70,7 @@ stl::result<> Client::send_request(int sock, const Request &req) {
   if (!req.body.empty()) {
     ss << req.body;
   }
-  std::string request_str = ss.str();
+  stl::string request_str = ss.str();
   size_t sent = 0;
   while (sent < request_str.size()) {
     i32 n =
@@ -85,7 +85,7 @@ stl::result<> Client::send_request(int sock, const Request &req) {
 
 stl::result<Response> Client::read_response(int sock) {
   Response resp;
-  std::string buffer;
+  stl::string buffer;
   char chunk[4096];
   bool headers_done = false;
   size_t content_length = 0;
@@ -97,14 +97,14 @@ stl::result<Response> Client::read_response(int sock) {
     buffer.append(chunk, n);
     if (!headers_done) {
       auto header_end = buffer.find("\r\n\r\n");
-      if (header_end != std::string::npos) {
-        std::string header_section = buffer.substr(0, header_end);
+      if (header_end != stl::string::npos) {
+        stl::string header_section = buffer.substr(0, header_end);
         std::istringstream iss(header_section);
-        std::string line;
+        stl::string line;
         // Parse status line
         if (std::getline(iss, line)) {
           std::istringstream status_stream(line);
-          std::string http_version;
+          stl::string http_version;
           status_stream >> http_version >> resp.status_code;
           std::getline(status_stream, resp.status_text);
           if (!resp.status_text.empty() && resp.status_text[0] == ' ') {
@@ -116,7 +116,7 @@ stl::result<Response> Client::read_response(int sock) {
           if (line.back() == '\r')
             line.pop_back();
           auto colon = line.find(':');
-          if (colon != std::string::npos) {
+          if (colon != stl::string::npos) {
             auto key = line.substr(0, colon);
             auto value = line.substr(colon + 1);
             if (!value.empty() && value[0] == ' ')
@@ -131,7 +131,7 @@ stl::result<Response> Client::read_response(int sock) {
           content_length = std::stoull(cl);
         }
         auto te = resp.headers.get("transfer-encoding");
-        if (te.find("chunked") != std::string::npos) {
+        if (te.find("chunked") != stl::string::npos) {
           is_chunked = true;
         }
       }
@@ -187,7 +187,7 @@ stl::result<Response> Client::send(const Request &req) {
   return future.get();
 }
 
-std::future<stl::result<Response>> Client::get(std::string_view url_str) {
+std::future<stl::result<Response>> Client::get(stl::string_view url_str) {
   auto url_result = URL::parse(url_str);
   if (!url_result) {
     std::promise<stl::result<Response>> p;
@@ -197,8 +197,8 @@ std::future<stl::result<Response>> Client::get(std::string_view url_str) {
   return async_send(Request(EMethod::GET, std::move(url_result.value())));
 }
 
-std::future<stl::result<Response>> Client::post(std::string_view url_str,
-                                                std::string body) {
+std::future<stl::result<Response>> Client::post(stl::string_view url_str,
+                                                stl::string body) {
   auto url_result = URL::parse(url_str);
   if (!url_result) {
     std::promise<stl::result<Response>> p;

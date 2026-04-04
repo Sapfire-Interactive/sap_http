@@ -7,14 +7,14 @@
 #include <future>
 #include <map>
 #include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
+
+#include <sap_core/stl/string.h>
+#include <sap_core/stl/vector.h>
 namespace sap::http {
 
 enum class EMethod { GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS };
 
-inline std::string method_to_string(EMethod m) {
+inline stl::string method_to_string(EMethod m) {
   switch (m) {
   case EMethod::GET:
     return "GET";
@@ -34,7 +34,7 @@ inline std::string method_to_string(EMethod m) {
   return "GET";
 }
 
-inline EMethod string_to_method(std::string_view s) {
+inline EMethod string_to_method(stl::string_view s) {
   if (s == "GET")
     return EMethod::GET;
   if (s == "POST")
@@ -53,49 +53,49 @@ inline EMethod string_to_method(std::string_view s) {
 }
 
 struct URL {
-  std::string scheme;
-  std::string host;
-  std::string port;
-  std::string path;
-  std::string query;
+  stl::string scheme;
+  stl::string host;
+  stl::string port;
+  stl::string path;
+  stl::string query;
 
-  static stl::result<URL> parse(std::string_view raw_url);
-  std::string full_path() const { return path + query; }
-  static URL from_path(std::string_view path_and_query);
+  static stl::result<URL> parse(stl::string_view raw_url);
+  stl::string full_path() const { return path + query; }
+  static URL from_path(stl::string_view path_and_query);
 };
 
 struct Headers {
-  std::map<std::string, std::string> data;
+  std::map<stl::string, stl::string> data;
 
-  void set(std::string_view key, std::string_view value);
-  std::string get(std::string_view key) const;
-  bool has(std::string_view key) const;
+  void set(stl::string_view key, stl::string_view value);
+  stl::string get(stl::string_view key) const;
+  bool has(stl::string_view key) const;
 };
 
 struct Request {
   EMethod method = EMethod::GET;
   URL url;
   Headers headers;
-  std::string body;
+  stl::string body;
   std::chrono::milliseconds timeout{30000};
 
   // Optional: route params extracted by server routing (e.g., /users/:id)
-  std::map<std::string, std::string> params;
+  std::map<stl::string, stl::string> params;
 
   Request() = default;
   Request(sap::http::EMethod m, sap::http::URL u);
 
-  void set_header(std::string_view key, std::string_view value);
-  void set_body(std::string data);
+  void set_header(stl::string_view key, stl::string_view value);
+  void set_body(stl::string data);
 };
 
 struct Response {
   i32 status_code{0};
-  std::string status_text;
+  stl::string status_text;
   Headers headers;
-  std::string body;
+  stl::string body;
   Response() = default;
-  Response(i32 code, std::string body_content = "");
+  Response(i32 code, stl::string body_content = "");
   inline bool is_success() const {
     return status_code >= 200 && status_code < 300;
   }
@@ -110,15 +110,15 @@ private:
 public:
   static std::future<stl::result<Response>> async_send(Request req);
   static stl::result<Response> send(const Request &req);
-  static std::future<stl::result<Response>> get(std::string_view url_str);
-  static std::future<stl::result<Response>> post(std::string_view url_str,
-                                                 std::string body);
+  static std::future<stl::result<Response>> get(stl::string_view url_str);
+  static std::future<stl::result<Response>> post(stl::string_view url_str,
+                                                 stl::string body);
 };
 
 using RouteHandler = std::function<Response(const Request &)>;
 
 struct Route {
-  std::string path;
+  stl::string path;
   EMethod method;
   RouteHandler handler;
   bool is_regex{false};
@@ -126,7 +126,7 @@ struct Route {
 
 struct ServerConfig {
   i32 server_socket{-1};
-  std::string host{"127.0.0.1"};
+  stl::string host{"127.0.0.1"};
   u16 port{8080};
   bool is_multithreaded{false};
 };
@@ -141,7 +141,7 @@ public:
   void stop();
 
   template <typename Handler>
-  void route(std::string_view path, EMethod method, Handler &&handler) {
+  void route(stl::string_view path, EMethod method, Handler &&handler) {
     Route r;
     r.path = path;
     r.method = method;

@@ -1,5 +1,7 @@
 #include "sap_http/net/http.h"
 
+#include <sap_core/stl/string.h>
+
 namespace sap::http {
 
 Request::Request(sap::http::EMethod m, sap::http::URL u) : method(m), url(std::move(u)) {
@@ -10,11 +12,11 @@ Request::Request(sap::http::EMethod m, sap::http::URL u) : method(m), url(std::m
   }
 }
 
-void Request::set_header(std::string_view key, std::string_view value) {
+void Request::set_header(stl::string_view key, stl::string_view value) {
   headers.set(key, value);
 }
 
-void Request::set_body(std::string data) {
+void Request::set_body(stl::string data) {
   body = std::move(data);
   if (!headers.has("Content-Length")) {
     headers.set("Content-Length", std::to_string(body.size()));

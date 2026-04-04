@@ -109,7 +109,7 @@ auto future = sap::http::Client::get("http://api.example.com/users");
 auto result = future.get();
 
 // POST request with body
-std::string json = R"({"name": "John", "age": 30})";
+stl::string json = R"({"name": "John", "age": 30})";
 auto future = sap::http::Client::post("http://api.example.com/users", json);
 
 // Custom request with headers
@@ -142,7 +142,7 @@ enum class EMethod {
 };
 
 // Convert to/from string
-std::string method_str = sap::http::method_to_string(sap::http::EMethod::POST);  // "POST"
+stl::string method_str = sap::http::method_to_string(sap::http::EMethod::POST);  // "POST"
 sap::http::EMethod method = sap::http::string_to_method("GET");  // EMethod::GET
 ```
 
@@ -159,7 +159,7 @@ if (result) {
     std::cout << "Query: " << url.query << '\n';    // "?query=value"
     
     // Get full path with query
-    std::string full = url.full_path();  // "/path?query=value"
+    stl::string full = url.full_path();  // "/path?query=value"
 }
 
 // Create URL from path only
@@ -174,7 +174,7 @@ h.set("Content-Type", "application/json");
 h.set("Authorization", "Bearer token");
 
 // Case-insensitive access
-std::string content_type = h.get("content-type");
+stl::string content_type = h.get("content-type");
 bool has_auth = h.has("Authorization");
 ```
 
@@ -207,10 +207,10 @@ server.route("/health", sap::http::EMethod::GET, [](const sap::http::Request& re
 // POST with request processing
 server.route("/api/users", sap::http::EMethod::POST, [](const sap::http::Request& req) {
     // Access request data
-    std::string body = req.body;
-    std::string content_type = req.headers.get("Content-Type");
-    std::string path = req.url.path;
-    std::string query = req.url.query;
+    stl::string body = req.body;
+    stl::string content_type = req.headers.get("Content-Type");
+    stl::string path = req.url.path;
+    stl::string query = req.url.query;
     
     // Create response
     sap::http::Response resp(201, R"({"id": 123, "created": true})");
@@ -232,8 +232,8 @@ struct Request {
     EMethod method;                            // HTTP method
     URL url;                                   // Parsed URL (use url.path, url.query)
     Headers headers;                           // Request headers
-    std::string body;                          // Request body
-    std::map<std::string, std::string> params; // Route parameters (e.g., :id)
+    stl::string body;                          // Request body
+    std::map<stl::string, stl::string> params; // Route parameters (e.g., :id)
     std::chrono::milliseconds timeout{30000};  // Request timeout
 };
 ```
@@ -291,7 +291,7 @@ server.stop();
 #include <mutex>
 
 struct Database {
-    std::map<int, std::string> users;
+    std::map<int, stl::string> users;
     std::mutex mtx;
     int next_id = 1;
 };
@@ -309,7 +309,7 @@ int main() {
     server.route("/api/users", sap::http::EMethod::GET, [&db](const sap::http::Request&) {
         std::lock_guard<std::mutex> lock(db.mtx);
         
-        std::string json = "[";
+        stl::string json = "[";
         bool first = true;
         for (const auto& user : db.users) {
             if (!first) json += ",";
@@ -328,11 +328,11 @@ int main() {
     server.route("/api/users", sap::http::EMethod::POST, [&db](const sap::http::Request& req) {
         std::lock_guard<std::mutex> lock(db.mtx);
         
-        std::string name = req.body;
+        stl::string name = req.body;
         int id = db.next_id++;
         db.users[id] = name;
         
-        std::string response = R"({"id":)" + std::to_string(id) + 
+        stl::string response = R"({"id":)" + std::to_string(id) + 
                               R"(,"name":")" + name + R"(","created":true})";
         
         sap::http::Response resp(201, response);
@@ -364,7 +364,7 @@ int main() {
 #include <vector>
 
 int main() {
-    std::vector<std::string> urls = {
+    std::vector<stl::string> urls = {
         "http://api.example.com/endpoint1",
         "http://api.example.com/endpoint2",
         "http://api.example.com/endpoint3"
@@ -399,7 +399,7 @@ int main() {
 #include <iostream>
 
 int main() {
-    std::string json_data = R"({
+    stl::string json_data = R"({
         "username": "john_doe",
         "email": "john@example.com"
     })";

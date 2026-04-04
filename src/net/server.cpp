@@ -17,17 +17,17 @@ namespace sap::http
 {
 
     // Parse incoming request and create a Request object
-    static stl::result<Request> parse_request(const std::string &raw_request)
+    static stl::result<Request> parse_request(const stl::string &raw_request)
     {
         std::istringstream stream(raw_request);
-        std::string line;
+        stl::string line;
         if (!std::getline(stream, line))
         {
             return stl::make_error<Request>("Empty request");
         }
 
         std::istringstream first_line(line);
-        std::string method_str, path_str, version;
+        stl::string method_str, path_str, version;
         first_line >> method_str >> path_str >> version;
 
         auto method = string_to_method(method_str);
@@ -41,7 +41,7 @@ namespace sap::http
             if (line.back() == '\r')
                 line.pop_back();
             auto colon = line.find(':');
-            if (colon != std::string::npos)
+            if (colon != stl::string::npos)
             {
                 auto key = line.substr(0, colon);
                 auto value = line.substr(colon + 1);
@@ -52,8 +52,8 @@ namespace sap::http
         }
 
         // Parse body
-        std::string body_content;
-        std::string body_line;
+        stl::string body_content;
+        stl::string body_line;
         while (std::getline(stream, body_line))
         {
             body_content += body_line + "\n";
@@ -67,7 +67,7 @@ namespace sap::http
         return req;
     }
 
-    static std::string build_response(const Response &resp)
+    static stl::string build_response(const Response &resp)
     {
         std::ostringstream ss;
         ss << "HTTP/1.1 " << resp.status_code << " ";
@@ -115,7 +115,7 @@ namespace sap::http
     void Server::handle_client(i32 client_socket)
     {
         char buffer[8192];
-        std::string request_data;
+        stl::string request_data;
 #ifdef _WIN32
         i32 n = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
 #else
@@ -161,11 +161,11 @@ namespace sap::http
                     }
                     catch (const std::exception &e)
                     {
-                        resp = Response(500, std::string("Error: ") + e.what());
+                        resp = Response(500, stl::string("Error: ") + e.what());
                     }
                 }
             }
-            std::string response_str = build_response(resp);
+            stl::string response_str = build_response(resp);
             send(client_socket, response_str.c_str(), response_str.size(), 0);
         }
 #ifdef _WIN32
@@ -192,7 +192,7 @@ namespace sap::http
             return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
 #else
             return stl::make_error<>("Failed to create socket: {}",
-                                     std::string(strerror(errno)));
+                                     stl::string(strerror(errno)));
 #endif
         }
         i32 opt = 1;
@@ -216,7 +216,7 @@ namespace sap::http
             close(m_Config.server_socket);
             return stl::make_error<>("Failed to bind to port {}: {}",
                                      std::to_string(m_Config.port),
-                                     std::string(strerror(errno)));
+                                     stl::string(strerror(errno)));
 #endif
         }
         if (listen(m_Config.server_socket, 10) < 0)
@@ -228,7 +228,7 @@ namespace sap::http
 #else
             close(m_Config.server_socket);
             return stl::make_error<>("Failed to listen: {}",
-                                     std::string(strerror(errno)));
+                                     stl::string(strerror(errno)));
 #endif
         }
         m_IsRunning = true;
