@@ -91,6 +91,9 @@ namespace sap::http {
             if (n <= 0)
                 break;
             buffer.append(chunk, n);
+            if (buffer.size() > Client::max_response_size) {
+                return stl::make_error<Response>("Response exceeds max_response_size");
+            }
             if (!headers_done) {
                 auto header_end = buffer.find("\r\n\r\n");
                 if (header_end != stl::string::npos) {
@@ -125,6 +128,9 @@ namespace sap::http {
                     auto cl = resp.headers.get("content-length");
                     if (!cl.empty()) {
                         content_length = std::stoull(cl);
+                        if (content_length > Client::max_response_size) {
+                            return stl::make_error<Response>("Content-Length exceeds max_response_size");
+                        }
                     }
                     auto te = resp.headers.get("transfer-encoding");
                     if (te.find("chunked") != stl::string::npos) {

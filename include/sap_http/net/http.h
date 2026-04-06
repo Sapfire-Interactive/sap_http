@@ -109,6 +109,10 @@ namespace sap::http {
         static stl::result<Response> read_response(i32 sock);
 
     public:
+        // Maximum response size the client will accept. Defaults to 10MB.
+        // Set higher for large downloads, lower for tighter resource limits.
+        static inline stl::size_t max_response_size{10 * 1024 * 1024};
+
         static std::future<stl::result<Response>> async_send(Request req);
         static stl::result<Response> send(const Request& req);
         static std::future<stl::result<Response>> get(stl::string_view url_str);
