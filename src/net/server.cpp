@@ -182,20 +182,21 @@ namespace sap::http {
                                 best_match = &route;
                                 break;
                             }
-                            // Check for prefix match (route path must be a prefix of request path)
+                            // Check for prefix match (route path must be a prefix of request path,
+                            // AND must end on a segment boundary so /api doesn't match /api-v2)
                             if (req.url.path.size() > route.path.size() && req.url.path.substr(0, route.path.size()) == route.path &&
-                                route.path.size() > best_match_len) {
+                                req.url.path[route.path.size()] == '/' && route.path.size() > best_match_len) {
                                 best_match = &route;
                                 best_match_len = route.path.size();
                             }
                         }
                     }
                     if (best_match) {
-                    }
-                    try {
-                        resp = best_match->handler(req);
-                    } catch (const std::exception& e) {
-                        resp = Response(500, stl::string("Error: ") + e.what());
+                        try {
+                            resp = best_match->handler(req);
+                        } catch (const std::exception& e) {
+                            resp = Response(500, stl::string("Error: ") + e.what());
+                        }
                     }
                 }
             }

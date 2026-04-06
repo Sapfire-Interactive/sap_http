@@ -277,13 +277,12 @@ TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
     sap::http::ServerConfig cfg;
     cfg.port = 11020;
     sap::http::Server server(std::move(cfg));
-    server.route("/echo", sap::http::EMethod::POST,
-                 [](const sap::http::Request& req) {
-                     // Echo back the body length so we can verify exact size
-                     sap::http::Response resp(200, req.body);
-                     resp.headers.set("X-Body-Size", std::to_string(req.body.size()));
-                     return resp;
-                 });
+    server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
+        // Echo back the body length so we can verify exact size
+        sap::http::Response resp(200, req.body);
+        resp.headers.set("X-Body-Size", std::to_string(req.body.size()));
+        return resp;
+    });
     auto t = start_server(server);
 
     // Body with null bytes, newlines, and high bytes — would all be mangled
@@ -300,8 +299,11 @@ TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
 
     std::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
-                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                      "\r\n" + body;
+                      "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
 
     auto resp = raw_request(11020, req);
     server.stop();
@@ -311,8 +313,7 @@ TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
     // Confirm the server saw the exact byte count we sent.
     // Headers::set lowercases keys, so search for the lowercase form.
     std::string expected = "x-body-size: " + std::to_string(body.size());
-    EXPECT_TRUE(resp.find(expected) != std::string::npos)
-        << "Expected " << expected << " in response";
+    EXPECT_TRUE(resp.find(expected) != std::string::npos) << "Expected " << expected << " in response";
 
     // Also verify the echoed body matches byte-for-byte.
     // Use find (not rfind) — the FIRST \r\n\r\n is the header/body boundary;
@@ -329,17 +330,17 @@ TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
     sap::http::ServerConfig cfg;
     cfg.port = 11021;
     sap::http::Server server(std::move(cfg));
-    server.route("/echo", sap::http::EMethod::POST,
-                 [](const sap::http::Request& req) {
-                     return sap::http::Response(200, req.body);
-                 });
+    server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(200, req.body); });
     auto t = start_server(server);
 
     std::string body = "before\r\n\r\nafter";
     std::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
-                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                      "\r\n" + body;
+                      "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
 
     auto resp = raw_request(11021, req);
     server.stop();
@@ -352,6 +353,101 @@ TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
     ASSERT_NE(body_start, std::string::npos);
     std::string echoed = resp.substr(body_start + 4);
     EXPECT_EQ(echoed, body);
+}
+
+TEST(ServerRouteTest, PrefixDoesNotMatchAcrossSegmentBoundary) {
+    // /api should NOT match /api-v2 — they're different segments
+    sap::http::ServerConfig cfg;
+    cfg.port = 11030;
+    sap::http::Server server(std::move(cfg));
+    server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "api root"); });
+    auto t = start_server(server);
+
+    std::string req = "GET /api-v2 HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11030, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("404") != std::string::npos) << "Expected 404 for /api-v2, got: " << resp;
+    EXPECT_TRUE(resp.find("api root") == std::string::npos);
+}
+
+TEST(ServerRouteTest, PrefixMatchAcrossSegmentBoundaryStillWorks) {
+    // /api SHOULD match /api/users — that's a real sub-path
+    sap::http::ServerConfig cfg;
+    cfg.port = 11031;
+    sap::http::Server server(std::move(cfg));
+    server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "api handler"); });
+    auto t = start_server(server);
+
+    std::string req = "GET /api/users HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11031, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
+    EXPECT_TRUE(resp.find("api handler") != std::string::npos);
+}
+
+TEST(ServerRouteTest, ExactMatchStillWorks) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11032;
+    sap::http::Server server(std::move(cfg));
+    server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "exact"); });
+    auto t = start_server(server);
+
+    std::string req = "GET /api HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11032, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
+    EXPECT_TRUE(resp.find("exact") != std::string::npos);
+}
+
+TEST(ServerRouteTest, NoFalseMatchOnSuffix) {
+    // /api should NOT match /apifoo
+    sap::http::ServerConfig cfg;
+    cfg.port = 11033;
+    sap::http::Server server(std::move(cfg));
+    server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "api"); });
+    auto t = start_server(server);
+
+    std::string req = "GET /apifoo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11033, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("404") != std::string::npos);
+}
+
+TEST(ServerRouteTest, LongestPrefixStillWins) {
+    // When multiple routes could match, the longest valid prefix wins
+    sap::http::ServerConfig cfg;
+    cfg.port = 11034;
+    sap::http::Server server(std::move(cfg));
+    server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "short"); });
+    server.route("/api/users", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "long"); });
+    auto t = start_server(server);
+
+    std::string req = "GET /api/users/42 HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11034, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
+    EXPECT_TRUE(resp.find("long") != std::string::npos);
+    EXPECT_TRUE(resp.find("short") == std::string::npos);
 }
 
 TEST(ServerMethodTest, UnknownMethodReturns405) {
