@@ -136,6 +136,9 @@ stl::result<Response> Client::read_response(int sock) {
         }
       }
     }
+    if (headers_done && !is_chunked && content_length == 0) {
+        break;
+    }
     if (headers_done && !is_chunked && content_length > 0) {
       if (buffer.size() >= content_length) {
         resp.body = buffer.substr(0, content_length);
