@@ -17,6 +17,9 @@ void Request::set_header(stl::string_view key, stl::string_view value) {
 }
 
 void Request::set_body(stl::string data) {
+  if(method == EMethod::UNKNOWN) {
+    return;
+  }
   body = std::move(data);
   if (!headers.has("Content-Length")) {
     headers.set("Content-Length", std::to_string(body.size()));

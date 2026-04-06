@@ -282,6 +282,179 @@ TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
     EXPECT_LE(ms, 3000);
 }
 
+// ---- Tests for issue #5: unknown methods should return 405 ----
+
+TEST(ServerMethodTest, UnknownMethodReturns405) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11010;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(200, "OK");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "FROBNICATE /test HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11010, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("405") != std::string::npos)
+        << "Expected 405 Method Not Allowed, got: " << resp;
+    EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
+}
+
+TEST(ServerMethodTest, ConnectMethodReturns405) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11011;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(200, "OK");
+                 });
+    auto t = start_server(server);
+
+    // CONNECT is a real HTTP method but not supported by this server
+    std::string req = "CONNECT /test HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11011, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("405") != std::string::npos)
+        << "Expected 405, got: " << resp;
+}
+
+TEST(ServerMethodTest, GarbageMethodReturns405) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11012;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(200, "OK");
+                 });
+    auto t = start_server(server);
+
+    // Random garbage in the method position
+    std::string req = "@#$%! /test HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11012, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("405") != std::string::npos)
+        << "Expected 405, got: " << resp;
+}
+
+TEST(ServerMethodTest, UnknownMethodBodyDoesNotSayNotFound) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11015;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(200, "OK");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "FROBNICATE /test HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11015, req);
+    server.stop();
+    t.join();
+
+    // Status should be 405
+    ASSERT_TRUE(resp.find("405") != std::string::npos);
+    // Body should NOT be "Not Found" — that's confusing for a 405
+    auto body_start = resp.find("\r\n\r\n");
+    ASSERT_NE(body_start, std::string::npos);
+    std::string body = resp.substr(body_start + 4);
+    EXPECT_TRUE(body.empty() || body.find("Not Found") == std::string::npos)
+        << "405 response should not have 'Not Found' body, got: " << body;
+}
+
+TEST(ServerMethodTest, UnknownMethodSkipsRouteHandlers) {
+    // Verify that handlers are NOT invoked when an unknown method comes in,
+    // even if a route exists at the same path with a known method.
+    sap::http::ServerConfig cfg;
+    cfg.port = 11016;
+    sap::http::Server server(std::move(cfg));
+
+    std::atomic<int> handler_calls{0};
+    server.route("/test", sap::http::EMethod::GET,
+                 [&handler_calls](const sap::http::Request&) {
+                     handler_calls.fetch_add(1);
+                     return sap::http::Response(200, "OK");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "FROBNICATE /test HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11016, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("405") != std::string::npos);
+    EXPECT_EQ(handler_calls.load(), 0)
+        << "Handler should not be invoked for unknown methods";
+}
+
+TEST(ServerMethodTest, KnownMethodsStillWork) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11013;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(200, "OK");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /test HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11013, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
+    EXPECT_TRUE(resp.find("405") == std::string::npos);
+}
+
+TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11014;
+    cfg.timeout_ms = 2000;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::POST,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(200, "OK");
+                 });
+    auto t = start_server(server);
+
+    // Unknown method with a Content-Length and body — server should
+    // reject with 405 quickly without trying to consume the body
+    std::string body = "some body data";
+    std::string req = "WEIRDO /test HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                      "\r\n" + body;
+
+    auto start = std::chrono::steady_clock::now();
+    auto resp = raw_request(11014, req);
+    auto elapsed = std::chrono::steady_clock::now() - start;
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("405") != std::string::npos);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+    EXPECT_LE(ms, 1500) << "Server took too long — likely waiting on body";
+}
+
 TEST(ServerTimeoutTest, NormalRequestStillWorksWithTimeout) {
     sap::http::ServerConfig cfg;
     cfg.port = 11009;

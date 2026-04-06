@@ -64,9 +64,10 @@ namespace sap::http {
         first_line >> method_str >> path_str >> version;
 
         auto method = string_to_method(method_str);
-
         // Create Request with URL containing just path and query
         Request req(method, URL::from_path(path_str));
+        if(method == EMethod::UNKNOWN)
+            return req;
 
         // Parse headers
         while (std::getline(stream, line) && line != "\r" && !line.empty()) {
@@ -103,6 +104,9 @@ namespace sap::http {
             break;
         case 404:
             ss << "Not Found";
+            break;
+        case 405:
+            ss << "Method Not Allowed";
             break;
         case 500:
             ss << "Internal Server Error";
@@ -163,26 +167,33 @@ namespace sap::http {
             Response resp(404, "Not Found");
             if (req_result) {
                 auto& req = req_result.value();
-                // Find matching route using URL path with prefix matching
-                // Routes are sorted by specificity (longer paths first)
-                const Route* best_match = nullptr;
-                size_t best_match_len = 0;
-                for (const auto& route : m_Routes) {
-                    if (route.method == req.method) {
-                        // Check for exact match first
-                        if (route.path == req.url.path) {
-                            best_match = &route;
-                            break;
-                        }
-                        // Check for prefix match (route path must be a prefix of request path)
-                        if (req.url.path.size() > route.path.size() && req.url.path.substr(0, route.path.size()) == route.path &&
-                            route.path.size() > best_match_len) {
-                            best_match = &route;
-                            best_match_len = route.path.size();
+                if(req.method == EMethod::UNKNOWN) {
+                    resp.status_code = 405;
+                    resp.body = "";
+                }
+                else {
+                    // Find matching route using URL path with prefix matching
+                    // Routes are sorted by specificity (longer paths first)
+                    const Route* best_match = nullptr;
+                    size_t best_match_len = 0;
+                    for (const auto& route : m_Routes) {
+                        if (route.method == req.method) {
+                            // Check for exact match first
+                            if (route.path == req.url.path) {
+                                best_match = &route;
+                                break;
+                            }
+                            // Check for prefix match (route path must be a prefix of request path)
+                            if (req.url.path.size() > route.path.size() && req.url.path.substr(0, route.path.size()) == route.path &&
+                                route.path.size() > best_match_len) {
+                                best_match = &route;
+                                best_match_len = route.path.size();
+                            }
                         }
                     }
+                    if (best_match) {
+
                 }
-                if (best_match) {
                     try {
                         resp = best_match->handler(req);
                     } catch (const std::exception& e) {
