@@ -1,5 +1,5 @@
-#include "sap_http/net/http.h"
 #include <gtest/gtest.h>
+#include "sap_http/net/http.h"
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -49,7 +49,8 @@ static std::string raw_request(u16 port, const std::string& data) {
     size_t sent = 0;
     while (sent < data.size()) {
         ssize_t n = ::send(sock, data.c_str() + sent, data.size() - sent, 0);
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
         sent += n;
     }
 
@@ -57,7 +58,8 @@ static std::string raw_request(u16 port, const std::string& data) {
     char buf[4096];
     while (true) {
         ssize_t n = recv(sock, buf, sizeof(buf), 0);
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
         response.append(buf, n);
     }
     close(sock);
@@ -68,17 +70,17 @@ TEST(ServerRecvTest, PostBodyReadViaContentLength) {
     sap::http::ServerConfig cfg;
     cfg.port = 11001;
     sap::http::Server server(std::move(cfg));
-    server.route("/echo", sap::http::EMethod::POST,
-                 [](const sap::http::Request& req) {
-                     return sap::http::Response(200, req.body);
-                 });
+    server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(200, req.body); });
     auto t = start_server(server);
 
     std::string body = R"({"key": "value"})";
     std::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
-                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                      "\r\n" + body;
+                      "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
 
     auto resp = raw_request(11001, req);
     server.stop();
@@ -93,11 +95,10 @@ TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
     cfg.port = 11002;
     cfg.max_body_size = 64 * 1024; // 64KB
     sap::http::Server server(std::move(cfg));
-    server.route("/echo", sap::http::EMethod::POST,
-                 [](const sap::http::Request& req) {
-                     // Echo back the body size so we can verify it arrived intact
-                     return sap::http::Response(200, std::to_string(req.body.size()));
-                 });
+    server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
+        // Echo back the body size so we can verify it arrived intact
+        return sap::http::Response(200, std::to_string(req.body.size()));
+    });
     auto t = start_server(server);
 
     // 16KB body — larger than the 4KB recv chunk in read_body,
@@ -105,8 +106,11 @@ TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
     std::string body(16384, 'A');
     std::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
-                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                      "\r\n" + body;
+                      "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
 
     auto resp = raw_request(11002, req);
     server.stop();
@@ -121,18 +125,18 @@ TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
     cfg.port = 11003;
     cfg.max_body_size = 128; // tiny limit
     sap::http::Server server(std::move(cfg));
-    server.route("/echo", sap::http::EMethod::POST,
-                 [](const sap::http::Request& req) {
-                     return sap::http::Response(200, req.body);
-                 });
+    server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(200, req.body); });
     auto t = start_server(server);
 
     // Claim a body larger than max_body_size
     std::string body(256, 'X');
     std::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
-                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                      "\r\n" + body;
+                      "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
 
     auto resp = raw_request(11003, req);
     server.stop();
@@ -147,18 +151,17 @@ TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
     cfg.port = 11004;
     cfg.max_header_size = 256; // tiny limit
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     // Craft headers that exceed 256 bytes total
     std::string big_header(300, 'H');
     std::string req = "GET /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
-                      "X-Junk: " + big_header + "\r\n"
-                      "\r\n";
+                      "X-Junk: " +
+        big_header +
+        "\r\n"
+        "\r\n";
 
     auto resp = raw_request(11004, req);
     server.stop();
@@ -172,10 +175,7 @@ TEST(ServerRecvTest, InvalidContentLengthDoesNotCrash) {
     sap::http::ServerConfig cfg;
     cfg.port = 11005;
     sap::http::Server server(std::move(cfg));
-    server.route("/echo", sap::http::EMethod::POST,
-                 [](const sap::http::Request& req) {
-                     return sap::http::Response(200, req.body);
-                 });
+    server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(200, req.body); });
     auto t = start_server(server);
 
     // Send a request with garbage Content-Length
@@ -198,10 +198,7 @@ TEST(ServerRecvTest, GetWithNoBodyWorks) {
     sap::http::ServerConfig cfg;
     cfg.port = 11006;
     sap::http::Server server(std::move(cfg));
-    server.route("/hello", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "world");
-                 });
+    server.route("/hello", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "world"); });
     auto t = start_server(server);
 
     std::string req = "GET /hello HTTP/1.1\r\n"
@@ -221,10 +218,7 @@ TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
     cfg.port = 11007;
     cfg.timeout_ms = 500; // 500ms timeout
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     // Connect but send nothing — classic slowloris
@@ -246,7 +240,7 @@ TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
     // Should have taken roughly the timeout duration, not forever.
     // Allow generous upper bound (3s) but it must not hang.
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-    EXPECT_GE(ms, 400);  // at least ~timeout
+    EXPECT_GE(ms, 400); // at least ~timeout
     EXPECT_LE(ms, 3000); // but not stuck forever
 }
 
@@ -255,10 +249,7 @@ TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
     cfg.port = 11008;
     cfg.timeout_ms = 500;
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     // Send partial headers (no \r\n\r\n terminator) then stall
@@ -288,10 +279,7 @@ TEST(ServerMethodTest, UnknownMethodReturns405) {
     sap::http::ServerConfig cfg;
     cfg.port = 11010;
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     std::string req = "FROBNICATE /test HTTP/1.1\r\n"
@@ -301,8 +289,7 @@ TEST(ServerMethodTest, UnknownMethodReturns405) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos)
-        << "Expected 405 Method Not Allowed, got: " << resp;
+    EXPECT_TRUE(resp.find("405") != std::string::npos) << "Expected 405 Method Not Allowed, got: " << resp;
     EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
 }
 
@@ -310,10 +297,7 @@ TEST(ServerMethodTest, ConnectMethodReturns405) {
     sap::http::ServerConfig cfg;
     cfg.port = 11011;
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     // CONNECT is a real HTTP method but not supported by this server
@@ -324,18 +308,14 @@ TEST(ServerMethodTest, ConnectMethodReturns405) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos)
-        << "Expected 405, got: " << resp;
+    EXPECT_TRUE(resp.find("405") != std::string::npos) << "Expected 405, got: " << resp;
 }
 
 TEST(ServerMethodTest, GarbageMethodReturns405) {
     sap::http::ServerConfig cfg;
     cfg.port = 11012;
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     // Random garbage in the method position
@@ -346,18 +326,14 @@ TEST(ServerMethodTest, GarbageMethodReturns405) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos)
-        << "Expected 405, got: " << resp;
+    EXPECT_TRUE(resp.find("405") != std::string::npos) << "Expected 405, got: " << resp;
 }
 
 TEST(ServerMethodTest, UnknownMethodBodyDoesNotSayNotFound) {
     sap::http::ServerConfig cfg;
     cfg.port = 11015;
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     std::string req = "FROBNICATE /test HTTP/1.1\r\n"
@@ -385,11 +361,10 @@ TEST(ServerMethodTest, UnknownMethodSkipsRouteHandlers) {
     sap::http::Server server(std::move(cfg));
 
     std::atomic<int> handler_calls{0};
-    server.route("/test", sap::http::EMethod::GET,
-                 [&handler_calls](const sap::http::Request&) {
-                     handler_calls.fetch_add(1);
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [&handler_calls](const sap::http::Request&) {
+        handler_calls.fetch_add(1);
+        return sap::http::Response(200, "OK");
+    });
     auto t = start_server(server);
 
     std::string req = "FROBNICATE /test HTTP/1.1\r\n"
@@ -400,18 +375,14 @@ TEST(ServerMethodTest, UnknownMethodSkipsRouteHandlers) {
     t.join();
 
     EXPECT_TRUE(resp.find("405") != std::string::npos);
-    EXPECT_EQ(handler_calls.load(), 0)
-        << "Handler should not be invoked for unknown methods";
+    EXPECT_EQ(handler_calls.load(), 0) << "Handler should not be invoked for unknown methods";
 }
 
 TEST(ServerMethodTest, KnownMethodsStillWork) {
     sap::http::ServerConfig cfg;
     cfg.port = 11013;
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     std::string req = "GET /test HTTP/1.1\r\n"
@@ -430,10 +401,7 @@ TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
     cfg.port = 11014;
     cfg.timeout_ms = 2000;
     sap::http::Server server(std::move(cfg));
-    server.route("/test", sap::http::EMethod::POST,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "OK");
-                 });
+    server.route("/test", sap::http::EMethod::POST, [](const sap::http::Request&) { return sap::http::Response(200, "OK"); });
     auto t = start_server(server);
 
     // Unknown method with a Content-Length and body — server should
@@ -441,8 +409,11 @@ TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
     std::string body = "some body data";
     std::string req = "WEIRDO /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
-                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                      "\r\n" + body;
+                      "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
 
     auto start = std::chrono::steady_clock::now();
     auto resp = raw_request(11014, req);
@@ -460,10 +431,7 @@ TEST(ServerTimeoutTest, NormalRequestStillWorksWithTimeout) {
     cfg.port = 11009;
     cfg.timeout_ms = 2000; // generous timeout
     sap::http::Server server(std::move(cfg));
-    server.route("/hello", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) {
-                     return sap::http::Response(200, "world");
-                 });
+    server.route("/hello", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "world"); });
     auto t = start_server(server);
 
     std::string req = "GET /hello HTTP/1.1\r\n"

@@ -4,26 +4,24 @@
 
 namespace sap::http {
 
-Request::Request(sap::http::EMethod m, sap::http::URL u) : method(m), url(std::move(u)) {
-  // Set default headers for client requests if scheme/host are present
-  if (!url.host.empty()) {
-    headers.set("User-Agent", "cpp-http/1.0");
-    headers.set("Accept", "*/*");
-  }
-}
+    Request::Request(sap::http::EMethod m, sap::http::URL u) : method(m), url(std::move(u)) {
+        // Set default headers for client requests if scheme/host are present
+        if (!url.host.empty()) {
+            headers.set("User-Agent", "cpp-http/1.0");
+            headers.set("Accept", "*/*");
+        }
+    }
 
-void Request::set_header(stl::string_view key, stl::string_view value) {
-  headers.set(key, value);
-}
+    void Request::set_header(stl::string_view key, stl::string_view value) { headers.set(key, value); }
 
-void Request::set_body(stl::string data) {
-  if(method == EMethod::UNKNOWN) {
-    return;
-  }
-  body = std::move(data);
-  if (!headers.has("Content-Length")) {
-    headers.set("Content-Length", std::to_string(body.size()));
-  }
-}
+    void Request::set_body(stl::string data) {
+        if (method == EMethod::UNKNOWN) {
+            return;
+        }
+        body = std::move(data);
+        if (!headers.has("Content-Length")) {
+            headers.set("Content-Length", std::to_string(body.size()));
+        }
+    }
 
 } // namespace sap::http

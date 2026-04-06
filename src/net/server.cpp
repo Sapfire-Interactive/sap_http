@@ -66,7 +66,7 @@ namespace sap::http {
         auto method = string_to_method(method_str);
         // Create Request with URL containing just path and query
         Request req(method, URL::from_path(path_str));
-        if(method == EMethod::UNKNOWN)
+        if (method == EMethod::UNKNOWN)
             return req;
 
         // Parse headers
@@ -167,11 +167,10 @@ namespace sap::http {
             Response resp(404, "Not Found");
             if (req_result) {
                 auto& req = req_result.value();
-                if(req.method == EMethod::UNKNOWN) {
+                if (req.method == EMethod::UNKNOWN) {
                     resp.status_code = 405;
                     resp.body = "";
-                }
-                else {
+                } else {
                     // Find matching route using URL path with prefix matching
                     // Routes are sorted by specificity (longer paths first)
                     const Route* best_match = nullptr;
@@ -192,8 +191,7 @@ namespace sap::http {
                         }
                     }
                     if (best_match) {
-
-                }
+                    }
                     try {
                         resp = best_match->handler(req);
                     } catch (const std::exception& e) {
