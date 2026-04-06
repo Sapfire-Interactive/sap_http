@@ -127,7 +127,11 @@ namespace sap::http {
                     headers_done = true;
                     auto cl = resp.headers.get("content-length");
                     if (!cl.empty()) {
-                        content_length = std::stoull(cl);
+                        try {
+                            content_length = std::stoull(cl);
+                        } catch (...) {
+                            return stl::make_error<Response>("Invalid Content-Length");
+                        }
                         if (content_length > Client::max_response_size) {
                             return stl::make_error<Response>("Content-Length exceeds max_response_size");
                         }

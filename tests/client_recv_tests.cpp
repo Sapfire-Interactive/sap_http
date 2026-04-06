@@ -57,6 +57,52 @@ struct FakeServer {
     }
 };
 
+TEST(ClientRecvTest, MalformedContentLengthDoesNotCrash) {
+    std::string bad_response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: not-a-number\r\n"
+        "\r\n"
+        "body";
+    FakeServer fake(12001, std::move(bad_response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12001/");
+    bool threw = false;
+    try {
+        auto result = fut.get();
+        // Should be an error result (not a successful response)
+        EXPECT_FALSE(result.has_value());
+    } catch (...) {
+        threw = true;
+    }
+    EXPECT_FALSE(threw) << "Client must not throw on malformed Content-Length";
+}
+
+TEST(ClientRecvTest, OverflowContentLengthDoesNotCrash) {
+    std::string bad_response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 99999999999999999999999\r\n"
+        "\r\n";
+    FakeServer fake(12002, std::move(bad_response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12002/");
+    auto result = fut.get();
+
+    SUCCEED();
+}
+
+TEST(ClientRecvTest, NegativeContentLengthDoesNotCrash) {
+    std::string bad_response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: -1\r\n"
+        "\r\n";
+    FakeServer fake(12003, std::move(bad_response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12003/");
+    auto result = fut.get();
+
+    SUCCEED();
+}
+
 TEST(ClientRecvTest, ContentLengthExceedingCapIsRejected) {
     // Server claims a huge body via Content-Length — client should reject
     // before allocating, returning an error result.
