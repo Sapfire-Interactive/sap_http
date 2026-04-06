@@ -273,7 +273,86 @@ TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
     EXPECT_LE(ms, 3000);
 }
 
-// ---- Tests for issue #5: unknown methods should return 405 ----
+TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11020;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) {
+                     // Echo back the body length so we can verify exact size
+                     sap::http::Response resp(200, req.body);
+                     resp.headers.set("X-Body-Size", std::to_string(req.body.size()));
+                     return resp;
+                 });
+    auto t = start_server(server);
+
+    // Body with null bytes, newlines, and high bytes — would all be mangled
+    // by the old getline-based parser
+    std::string body;
+    body.push_back('\x00');
+    body.push_back('\xFF');
+    body.push_back('\n');
+    body.push_back('\r');
+    body.push_back('\x00');
+    body.push_back('\x80');
+    body.append("normal text");
+    body.push_back('\x00');
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                      "\r\n" + body;
+
+    auto resp = raw_request(11020, req);
+    server.stop();
+    t.join();
+
+    ASSERT_TRUE(resp.find("200 OK") != std::string::npos);
+    // Confirm the server saw the exact byte count we sent.
+    // Headers::set lowercases keys, so search for the lowercase form.
+    std::string expected = "x-body-size: " + std::to_string(body.size());
+    EXPECT_TRUE(resp.find(expected) != std::string::npos)
+        << "Expected " << expected << " in response";
+
+    // Also verify the echoed body matches byte-for-byte.
+    // Use find (not rfind) — the FIRST \r\n\r\n is the header/body boundary;
+    // any subsequent occurrences are part of the body.
+    auto body_start = resp.find("\r\n\r\n");
+    ASSERT_NE(body_start, std::string::npos);
+    std::string echoed = resp.substr(body_start + 4);
+    EXPECT_EQ(echoed, body);
+}
+
+TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
+    // A naive parser might think \r\n\r\n inside the body marks header end.
+    // Content-Length-aware reading should handle it correctly.
+    sap::http::ServerConfig cfg;
+    cfg.port = 11021;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) {
+                     return sap::http::Response(200, req.body);
+                 });
+    auto t = start_server(server);
+
+    std::string body = "before\r\n\r\nafter";
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                      "\r\n" + body;
+
+    auto resp = raw_request(11021, req);
+    server.stop();
+    t.join();
+
+    ASSERT_TRUE(resp.find("200 OK") != std::string::npos);
+    // First \r\n\r\n is the header/body boundary. Body's embedded \r\n\r\n
+    // would be a later occurrence — must use find, not rfind.
+    auto body_start = resp.find("\r\n\r\n");
+    ASSERT_NE(body_start, std::string::npos);
+    std::string echoed = resp.substr(body_start + 4);
+    EXPECT_EQ(echoed, body);
+}
 
 TEST(ServerMethodTest, UnknownMethodReturns405) {
     sap::http::ServerConfig cfg;
