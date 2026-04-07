@@ -300,9 +300,16 @@ namespace sap::http {
         }
     }
 
+    void Server::run_async() {
+        m_RunThread = std::thread([this]() { run(); });
+    }
+
     void Server::stop() {
-        if (!m_IsRunning.exchange(false))
+        if (!m_IsRunning.exchange(false)) {
+            if (m_RunThread.joinable())
+                m_RunThread.join();
             return;
+        }
         if (m_Config.server_socket >= 0) {
 #ifdef _WIN32
             ::shutdown(m_Config.server_socket, SD_BOTH);
@@ -322,6 +329,8 @@ namespace sap::http {
 #endif
             m_Config.server_socket = -1;
         }
+        if (m_RunThread.joinable())
+            m_RunThread.join();
     }
 
 } // namespace sap::http

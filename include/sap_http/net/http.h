@@ -150,6 +150,7 @@ namespace sap::http {
         ~Server();
         stl::result<> start();
         void run();
+        void run_async();
         void stop();
 
         template <typename Handler>
@@ -169,6 +170,7 @@ namespace sap::http {
         std::vector<Route> m_Routes;
         std::atomic<bool> m_IsRunning{false};
         sap::job_system m_JobSystem;
+        std::thread m_RunThread;
     };
 
 } // namespace sap::http

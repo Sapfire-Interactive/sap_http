@@ -1099,6 +1099,37 @@ TEST(ServerRecvTest, GracefulShutdownStopsAcceptingNewConnections) {
         close(sock);
 }
 
+TEST(ServerRecvTest, RunAsyncDoesNotBlock) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11310;
+    sap::http::Server server(std::move(cfg));
+    server.route("/", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "hi"); });
+
+    auto start_result = server.start();
+    ASSERT_TRUE(start_result.has_value()) << start_result.error();
+    server.run_async();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    auto resp = raw_request(11310, "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
+    EXPECT_TRUE(resp.find("hi") != std::string::npos);
+
+    server.stop();
+}
+
+TEST(ServerRecvTest, RunAsyncStopJoinsInternalThread) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11311;
+    sap::http::Server server(std::move(cfg));
+    auto start_result = server.start();
+    ASSERT_TRUE(start_result.has_value());
+    server.run_async();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    server.stop(); // must return without leaking the thread
+    SUCCEED();
+}
+
 TEST(ServerRecvTest, StopIsIdempotent) {
     sap::http::ServerConfig cfg;
     cfg.port = 11302;
