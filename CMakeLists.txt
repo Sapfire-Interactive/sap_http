@@ -46,6 +46,8 @@ set(HTTP_SOURCES
 
 set(SAP_CORE_BUILD_TESTS ${SAP_HTTP_BUILD_TESTS})
 add_subdirectory(sap_core)
+set(SAP_NETWORK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(sap_network)
 
 # Shared library
 if(SAP_HTTP_BUILD_SHARED)
@@ -62,7 +64,7 @@ if(SAP_HTTP_BUILD_SHARED)
         target_link_libraries(sap_http_shared PRIVATE ws2_32)
     endif()
 
-    target_link_libraries(sap_http_shared PUBLIC sap::core)
+    target_link_libraries(sap_http_shared PUBLIC sap::core sap::network)
 
     set_target_properties(sap_http_shared PROPERTIES
         OUTPUT_NAME sap_http
@@ -86,7 +88,7 @@ if(SAP_HTTP_BUILD_STATIC)
         target_link_libraries(sap_http_static PRIVATE ws2_32)
     endif()
 
-    target_link_libraries(sap_http_static PUBLIC sap::core)
+    target_link_libraries(sap_http_static PUBLIC sap::core sap::network)
 
     set_target_properties(sap_http_static PROPERTIES
         OUTPUT_NAME sap_http

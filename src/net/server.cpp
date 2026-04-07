@@ -1,29 +1,18 @@
-#include <cstring>
 #include "sap_http/net/common.h"
 #include "sap_http/net/http.h"
 
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-#else
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
+#include <sap_network/tcp_socket.h>
 
 namespace sap::http {
 
-    static stl::result<stl::string> read_header(i32 sock, stl::size_t max_header_size) {
+    static stl::result<stl::string> read_header(sap::network::ISocket& sock, stl::size_t max_header_size) {
         stl::string buf;
         stl::byte chunk[4096];
         while (buf.size() < max_header_size) {
-            ssize_t n = recv(sock, chunk, sizeof(chunk), 0);
-            if (n <= 0)
+            auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
+            if (n == 0)
                 return stl::make_error<stl::string>("Connection closed during header read");
-            buf.append(chunk, n);
+            buf.append(reinterpret_cast<const char*>(chunk), n);
             auto pos = buf.find("\r\n\r\n");
             if (pos != stl::string::npos) {
                 if (pos > max_header_size)
@@ -34,24 +23,23 @@ namespace sap::http {
         return stl::make_error<stl::string>("Headers exceeded max size");
     }
 
-    static stl::result<stl::string> read_body(i32 sock, stl::string& buf, stl::size_t header_end, stl::size_t content_length,
-                                              stl::size_t max_body_bytes) {
+    static stl::result<stl::string> read_body(sap::network::ISocket& sock, stl::string& buf, stl::size_t header_end,
+                                              stl::size_t content_length, stl::size_t max_body_bytes) {
         if (content_length > max_body_bytes)
             return stl::make_error<stl::string>("Body exceeds max size");
         stl::size_t body_start = header_end + 4;
         stl::string body = buf.substr(body_start);
         stl::byte chunk[4096];
         while (body.size() < content_length) {
-            ssize_t n = recv(sock, chunk, sizeof(chunk), 0);
-            if (n <= 0)
+            auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
+            if (n == 0)
                 return stl::make_error<stl::string>("Connection closed during body read");
-            body.append(chunk, n);
+            body.append(reinterpret_cast<const char*>(chunk), n);
         }
-        body.resize(content_length); // trim any excess
+        body.resize(content_length);
         return body;
     }
 
-    // Parse incoming request and create a Request object
     static stl::result<Request> parse_request(const stl::string& raw_request) {
         std::istringstream stream(raw_request);
         stl::string line;
@@ -71,7 +59,6 @@ namespace sap::http {
         if (method == EMethod::UNKNOWN)
             return req;
 
-        // Parse headers
         while (std::getline(stream, line) && line != "\r" && !line.empty()) {
             if (line.back() == '\r')
                 line.pop_back();
@@ -118,31 +105,37 @@ namespace sap::http {
         return ss.str();
     }
 
+    static void send_all(sap::network::ISocket& sock, stl::string_view data) {
+        stl::size_t sent = 0;
+        while (sent < data.size()) {
+            auto n = sock.send(stl::span<const stl::byte>(
+                reinterpret_cast<const stl::byte*>(data.data() + sent), data.size() - sent));
+            if (n == 0)
+                return;
+            sent += n;
+        }
+    }
+
     Server::Server(ServerConfig cfg) :
         m_Config(std::move(cfg)), m_Routes(), m_IsRunning(false),
         m_JobSystem(sap::job_system_config{.thread_count = m_Config.is_multithreaded ? stl::thread::hardware_concurrency() : 0}) {}
 
     Server::~Server() { stop(); }
 
-    void Server::handle_client(i32 client_socket) {
-        struct timeval timeout;
-        timeout.tv_sec = m_Config.timeout_ms / 1000;
-        timeout.tv_usec = (m_Config.timeout_ms % 1000) * 1000;
-        setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeval));
-        setsockopt(client_socket, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeval));
-        auto header_result = read_header(client_socket, Server::max_header_size);
+    void Server::handle_client(stl::unique_ptr<sap::network::ISocket> client_socket) {
+        auto& sock = *client_socket;
+        auto header_result = read_header(sock, Server::max_header_size);
         if (header_result) {
             auto& raw = header_result.value();
             auto header_end = raw.find("\r\n\r\n");
             stl::string header_section = raw.substr(0, header_end);
             auto req_result = parse_request(header_section);
 
-            // Read body if Content-Length is present
             if (req_result) {
                 auto te = req_result.value().headers.get("Transfer-Encoding");
                 if (te.find("chunked") != stl::string::npos) {
                     stl::string leftover = raw.substr(header_end + 4);
-                    auto body_result = read_chunked_body(client_socket, leftover, Server::max_body_size);
+                    auto body_result = read_chunked_body(sock, leftover, Server::max_body_size);
                     if (body_result)
                         req_result.value().body = std::move(body_result.value());
                     else
@@ -157,7 +150,7 @@ namespace sap::http {
                             req_result = stl::make_error<Request>("Invalid Content-Length");
                         }
                         if (req_result && content_length > 0) {
-                            auto body_result = read_body(client_socket, raw, header_end, content_length, Server::max_body_size);
+                            auto body_result = read_body(sock, raw, header_end, content_length, Server::max_body_size);
                             if (body_result)
                                 req_result.value().body = std::move(body_result.value());
                             else
@@ -166,8 +159,6 @@ namespace sap::http {
                     }
                 }
             }
-            // Default: 400 Bad Request if the request couldn't be parsed,
-            // 404 Not Found if it parsed but no route matched.
             Response resp = req_result ? Response(EStatusCode::NotFound, "Not Found") : Response(EStatusCode::BadRequest, "");
             if (req_result) {
                 auto& req = req_result.value();
@@ -269,96 +260,51 @@ namespace sap::http {
                 }
             }
             stl::string response_str = build_response(resp);
-            send(client_socket, response_str.c_str(), response_str.size(), 0);
+            send_all(sock, response_str);
         }
-#ifdef _WIN32
-        closesocket(client_socket);
-#else
-        close(client_socket);
-#endif
+        sock.close();
     }
 
     stl::result<> Server::start() {
-#ifdef _WIN32
-        WSADATA wsa_data;
-        if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
-            return stl::make_error<>("Failed to initialize Winsock");
-        }
-#endif
-        m_ServerSocket = socket(AF_INET, SOCK_STREAM, 0);
-        if (m_ServerSocket < 0) {
-#ifdef _WIN32
-            i32 err = WSAGetLastError();
-            return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
-#else
-            return stl::make_error<>("Failed to create socket: {}", stl::string(strerror(errno)));
-#endif
-        }
-        i32 opt = 1;
-        setsockopt(m_ServerSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        if (inet_pton(AF_INET, m_Config.host.c_str(), &addr.sin_addr) != 1) {
-            return stl::make_error<>("Invalid host address: {}", m_Config.host);
-        }
-        addr.sin_port = htons(m_Config.port);
-        if (bind(m_ServerSocket, (sockaddr*)&addr, sizeof(addr)) < 0) {
-#ifdef _WIN32
-            i32 err = WSAGetLastError();
-            closesocket(m_ServerSocket);
-            return stl::make_error<>("Failed to bind to port {}: {}", std::to_string(m_Config.port), std::to_string(err));
-#else
-            close(m_ServerSocket);
-            return stl::make_error<>("Failed to bind to port {}: {}", std::to_string(m_Config.port), stl::string(strerror(errno)));
-#endif
-        }
-        if (listen(m_ServerSocket, 10) < 0) {
-#ifdef _WIN32
-            i32 err = WSAGetLastError();
-            closesocket(m_ServerSocket);
-            return stl::make_error<>("Failed to listen: {}", std::to_string(err));
-#else
-            close(m_ServerSocket);
-            return stl::make_error<>("Failed to listen: {}", stl::string(strerror(errno)));
-#endif
-        }
+        sap::network::SocketConfig sc;
+        sc.host = m_Config.host;
+        sc.port = m_Config.port;
+        sc.reuse_addr = true;
+        sc.recv_timeout = std::chrono::milliseconds{m_Config.timeout_ms};
+        sc.send_timeout = std::chrono::milliseconds{m_Config.timeout_ms};
+        m_ServerSocket = stl::make_unique<sap::network::TCPSocket>(std::move(sc));
+        if (!m_ServerSocket->valid())
+            return stl::make_error<>("Failed to create socket");
+        if (!m_ServerSocket->bind())
+            return stl::make_error<>("Failed to bind to {}:{}", m_Config.host, std::to_string(m_Config.port));
+        if (!m_ServerSocket->listen())
+            return stl::make_error<>("Failed to listen on port {}", std::to_string(m_Config.port));
         m_IsRunning = true;
         return stl::result_success();
     }
 
     void Server::run() {
         while (m_IsRunning.load()) {
-            sockaddr_in client_addr{};
-            socklen_t client_len = sizeof(client_addr);
-            i32 client_socket = accept(m_ServerSocket, (sockaddr*)&client_addr, &client_len);
-            if (client_socket < 0) {
-#ifdef _WIN32
-                int err = WSAGetLastError();
+            auto client = m_ServerSocket->accept();
+            if (!client) {
                 if (!m_IsRunning.load())
-                    break;
-                // transient errors: sleep and continue
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                continue;
-#else
-                if (errno == EINTR)
-                    continue;
-                if (!m_IsRunning.load())
-                    break;
-                if (errno == EBADF || errno == EINVAL || errno == ENOTSOCK)
                     break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
-#endif
             }
             if (m_Config.is_multithreaded) {
-                if (!m_JobSystem.submit([this, client_socket]() { handle_client(client_socket); })) {
-                    // Queue full — reject connection
+                auto* raw = client.release();
+                if (!m_JobSystem.submit([this, raw]() {
+                        stl::unique_ptr<sap::network::ISocket> owned(raw);
+                        handle_client(std::move(owned));
+                    })) {
+                    stl::unique_ptr<sap::network::ISocket> owned(raw);
                     const char* msg = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
-                    ::send(client_socket, msg, strlen(msg), 0);
-                    close(client_socket);
+                    send_all(*owned, msg);
+                    owned->close();
                 }
             } else {
-                handle_client(client_socket);
+                handle_client(std::move(client));
             }
         }
     }
@@ -373,25 +319,12 @@ namespace sap::http {
                 m_RunThread.join();
             return;
         }
-        if (m_ServerSocket >= 0) {
-#ifdef _WIN32
-            ::shutdown(m_ServerSocket, SD_BOTH);
-#else
-            ::shutdown(m_ServerSocket, SHUT_RDWR);
-#endif
-        }
+        if (m_ServerSocket)
+            m_ServerSocket->close();
         if (m_Config.is_multithreaded) {
             m_JobSystem.wait_idle();
         }
-        if (m_ServerSocket >= 0) {
-#ifdef _WIN32
-            closesocket(m_ServerSocket);
-            WSACleanup();
-#else
-            close(m_ServerSocket);
-#endif
-            m_ServerSocket = -1;
-        }
+        m_ServerSocket.reset();
         if (m_RunThread.joinable())
             m_RunThread.join();
     }

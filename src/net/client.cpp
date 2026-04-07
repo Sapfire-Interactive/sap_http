@@ -1,63 +1,43 @@
-#include <cstring>
 #include "sap_http/net/common.h"
 #include "sap_http/net/http.h"
 
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-#else
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
+#include <sap_core/stl/unique_ptr.h>
+#include <sap_network/tcp_socket.h>
 
 namespace sap::http {
 
-    stl::result<int> Client::connect_socket(const URL& u) {
-        struct addrinfo hints{}, *res = nullptr;
-        std::memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        i32 gai_result = getaddrinfo(u.host.c_str(), u.port.c_str(), &hints, &res);
-        if (gai_result != 0) {
-#ifdef _WIN32
-            return stl::make_error<i32>("Failed to resolve host {}: {}", u.host, std::to_string(WSAGetLastError()));
-#else
-            return stl::make_error<i32>("Failed to resolve host {}: {}", u.host, stl::string(gai_strerror(gai_result)));
-#endif
+    static stl::unique_ptr<sap::network::TCPSocket> connect_to(const URL& u) {
+        sap::network::SocketConfig sc;
+        sc.host = u.host;
+        try {
+            sc.port = static_cast<u16>(std::stoul(u.port));
+        } catch (...) {
+            return nullptr;
         }
-        i32 sock = -1;
-        struct addrinfo* rp = nullptr;
-        for (rp = res; rp != nullptr; rp = rp->ai_next) {
-            sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-            if (sock < 0) {
-                continue;
-            }
-            if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0) {
-                break;
-            }
-#ifdef _WIN32
-            closesocket(sock);
-#else
-            close(sock);
-#endif
-            sock = -1;
-        }
-        freeaddrinfo(res);
-        if (sock < 0) {
-#ifdef _WIN32
-            i32 err = WSAGetLastError();
-            return stl::make_error<i32>("Failed to connect to {}:{} - {}", u.host, u.port, std::to_string(err));
-#else
-            return stl::make_error<i32>("Failed to connect to {}:{} - {}", u.host, u.port, stl::string(strerror(errno)));
-#endif
-        }
+        sc.connect_timeout = std::chrono::milliseconds{10000};
+        sc.recv_timeout = std::chrono::milliseconds{30000};
+        sc.send_timeout = std::chrono::milliseconds{30000};
+        auto sock = stl::make_unique<sap::network::TCPSocket>(std::move(sc));
+        if (!sock->valid())
+            return nullptr;
+        if (!sock->connect())
+            return nullptr;
         return sock;
     }
 
-    stl::result<> Client::send_request(int sock, const Request& req) {
+    static stl::result<> send_all(sap::network::ISocket& sock, stl::string_view data) {
+        stl::size_t sent = 0;
+        while (sent < data.size()) {
+            auto n = sock.send(stl::span<const stl::byte>(
+                reinterpret_cast<const stl::byte*>(data.data() + sent), data.size() - sent));
+            if (n == 0)
+                return stl::make_error<>("Failed to send");
+            sent += n;
+        }
+        return stl::result_success();
+    }
+
+    static stl::result<> send_request_impl(sap::network::ISocket& sock, const Request& req) {
         std::ostringstream ss;
         ss << method_to_string(req.method) << " " << req.url.full_path() << " HTTP/1.1\r\n";
         ss << "Host: " << req.url.host << "\r\n";
@@ -68,19 +48,10 @@ namespace sap::http {
         if (!req.body.empty()) {
             ss << req.body;
         }
-        stl::string request_str = ss.str();
-        size_t sent = 0;
-        while (sent < request_str.size()) {
-            i32 n = ::send(sock, request_str.c_str() + sent, request_str.size() - sent, 0);
-            if (n <= 0) {
-                return stl::make_error<>("Failed to send request");
-            }
-            sent += n;
-        }
-        return stl::result_success();
+        return send_all(sock, ss.str());
     }
 
-    stl::result<Response> Client::read_response(int sock) {
+    static stl::result<Response> read_response_impl(sap::network::ISocket& sock) {
         Response resp;
         stl::string buffer;
         stl::byte chunk[4096];
@@ -88,20 +59,18 @@ namespace sap::http {
         stl::size_t content_length = 0;
         bool is_chunked = false;
         while (true) {
-            int n = recv(sock, chunk, sizeof(chunk), 0);
-            if (n <= 0)
+            auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
+            if (n == 0)
                 break;
-            buffer.append(chunk, n);
-            if (buffer.size() > Client::max_response_size) {
+            buffer.append(reinterpret_cast<const char*>(chunk), n);
+            if (buffer.size() > Client::max_response_size)
                 return stl::make_error<Response>("Response exceeds max_response_size");
-            }
             if (!headers_done) {
                 auto header_end = buffer.find("\r\n\r\n");
                 if (header_end != stl::string::npos) {
                     stl::string header_section = buffer.substr(0, header_end);
                     std::istringstream iss(header_section);
                     stl::string line;
-                    // Parse status line
                     if (std::getline(iss, line)) {
                         std::istringstream status_stream(line);
                         stl::string http_version;
@@ -109,11 +78,9 @@ namespace sap::http {
                         status_stream >> http_version >> code_num;
                         resp.status_code = static_cast<EStatusCode>(code_num);
                         std::getline(status_stream, resp.status_text);
-                        if (!resp.status_text.empty() && resp.status_text[0] == ' ') {
+                        if (!resp.status_text.empty() && resp.status_text[0] == ' ')
                             resp.status_text.erase(0, 1);
-                        }
                     }
-                    // Parse headers
                     while (std::getline(iss, line) && !line.empty() && line != "\r") {
                         if (line.back() == '\r')
                             line.pop_back();
@@ -137,7 +104,6 @@ namespace sap::http {
                         }
                         if (content_length > Client::max_response_size)
                             return stl::make_error<Response>("Content-Length exceeds max_response_size");
-                        }
                     }
                     auto te = resp.headers.get("transfer-encoding");
                     if (te.find("chunked") != stl::string::npos)
@@ -154,10 +120,10 @@ namespace sap::http {
             if (headers_done && content_length == 0)
                 break;
             if (headers_done && content_length > 0 && buffer.size() >= content_length) {
-                    resp.body = buffer.substr(0, content_length);
-                    break;
-                }
+                resp.body = buffer.substr(0, content_length);
+                break;
             }
+        }
         if (!headers_done)
             return stl::make_error<Response>("Failed to parse response headers");
         if (content_length == 0 && !buffer.empty())
@@ -169,28 +135,13 @@ namespace sap::http {
 
     std::future<stl::result<Response>> Client::async_send(Request req) {
         return std::async(std::launch::async, [req = std::move(req)]() -> stl::result<Response> {
-            auto sock_result = connect_socket(req.url);
-            if (!sock_result) {
-                return stl::make_error<Response>("{}", sock_result.error());
-            }
-            int sock = sock_result.value();
-            auto send_result = send_request(sock, req);
-            if (!send_result) {
-#ifdef _WIN32
-                closesocket(sock);
-#else
-            close(sock);
-#endif
+            auto sock = connect_to(req.url);
+            if (!sock)
+                return stl::make_error<Response>("Failed to connect to {}:{}", req.url.host, req.url.port);
+            auto send_result = send_request_impl(*sock, req);
+            if (!send_result)
                 return stl::make_error<Response>("{}", send_result.error());
-            }
-            auto resp_result = read_response(sock);
-
-#ifdef _WIN32
-            closesocket(sock);
-#else
-        close(sock);
-#endif
-            return resp_result;
+            return read_response_impl(*sock);
         });
     }
 

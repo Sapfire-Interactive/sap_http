@@ -14,6 +14,7 @@
 #include <sap_core/stl/string.h>
 #include <sap_core/stl/unique_ptr.h>
 #include <sap_core/stl/vector.h>
+#include <sap_network/tcp_socket.h>
 
 #include "sap_http/net/status_codes.h"
 
@@ -111,11 +112,6 @@ namespace sap::http {
     };
 
     class Client {
-    private:
-        static stl::result<i32> connect_socket(const URL& u);
-        static stl::result<> send_request(i32 sock, const Request& req);
-        static stl::result<Response> read_response(i32 sock);
-
     public:
         // Maximum response size the client will accept. Defaults to 10MB.
         // Set higher for large downloads, lower for tighter resource limits.
@@ -202,11 +198,11 @@ namespace sap::http {
         }
 
     private:
-        void handle_client(i32 client_socket);
+        void handle_client(stl::unique_ptr<sap::network::ISocket> client_socket);
 
     private:
         ServerConfig m_Config;
-        
+        stl::unique_ptr<sap::network::TCPSocket> m_ServerSocket;
         stl::vector<Route> m_Routes;
         stl::vector<Middleware> m_Middleware;
         std::atomic<bool> m_IsRunning{false};
