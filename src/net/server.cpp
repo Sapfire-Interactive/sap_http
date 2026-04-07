@@ -301,14 +301,23 @@ namespace sap::http {
     }
 
     void Server::stop() {
-        m_IsRunning.store(false);
+        if (!m_IsRunning.exchange(false))
+            return;
         if (m_Config.server_socket >= 0) {
 #ifdef _WIN32
             ::shutdown(m_Config.server_socket, SD_BOTH);
+#else
+            ::shutdown(m_Config.server_socket, SHUT_RDWR);
+#endif
+        }
+        if (m_Config.is_multithreaded) {
+            m_JobSystem.wait_idle();
+        }
+        if (m_Config.server_socket >= 0) {
+#ifdef _WIN32
             closesocket(m_Config.server_socket);
             WSACleanup();
 #else
-            ::shutdown(m_Config.server_socket, SHUT_RDWR);
             close(m_Config.server_socket);
 #endif
             m_Config.server_socket = -1;

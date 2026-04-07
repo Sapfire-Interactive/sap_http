@@ -1049,6 +1049,67 @@ TEST(ServerRecvTest, ChunkedRequestSpanningManyChunks) {
     EXPECT_TRUE(resp.find("\r\n\r\n100") != std::string::npos);
 }
 
+TEST(ServerRecvTest, GracefulShutdownWaitsForInFlightHandler) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11300;
+    cfg.is_multithreaded = true;
+    sap::http::Server server(std::move(cfg));
+
+    std::atomic<bool> handler_finished{false};
+    server.route("/slow", sap::http::EMethod::GET, [&](const sap::http::Request&) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        handler_finished = true;
+        return sap::http::Response(sap::http::EStatusCode::OK, "done");
+    });
+    auto t = start_server(server);
+
+    std::thread client([&]() {
+        std::string req = "GET /slow HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        auto resp = raw_request(11300, req);
+        EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
+        EXPECT_TRUE(resp.find("done") != std::string::npos);
+    });
+
+    // Give the client time to actually be inside the handler
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    server.stop();
+
+    // After stop() returns, the in-flight handler must have completed.
+    EXPECT_TRUE(handler_finished.load());
+
+    client.join();
+    t.join();
+}
+
+TEST(ServerRecvTest, GracefulShutdownStopsAcceptingNewConnections) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11301;
+    cfg.is_multithreaded = true;
+    sap::http::Server server(std::move(cfg));
+    server.route("/", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "hi"); });
+    auto t = start_server(server);
+    server.stop();
+    t.join();
+
+    // New connection after stop should fail to connect
+    int sock = raw_connect(11301);
+    EXPECT_LT(sock, 0);
+    if (sock >= 0)
+        close(sock);
+}
+
+TEST(ServerRecvTest, StopIsIdempotent) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11302;
+    sap::http::Server server(std::move(cfg));
+    auto t = start_server(server);
+    server.stop();
+    server.stop(); // must not crash or hang
+    t.join();
+    SUCCEED();
+}
+
 TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
     sap::http::ServerConfig cfg;
     cfg.port = 11210;
