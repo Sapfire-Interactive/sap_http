@@ -222,8 +222,8 @@ namespace sap::http {
             return stl::make_error<>("Failed to initialize Winsock");
         }
 #endif
-        m_Config.server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (m_Config.server_socket < 0) {
+        m_ServerSocket = socket(AF_INET, SOCK_STREAM, 0);
+        if (m_ServerSocket < 0) {
 #ifdef _WIN32
             i32 err = WSAGetLastError();
             return stl::make_error<>("Failed to create socket: {}", std::to_string(err));
@@ -232,30 +232,30 @@ namespace sap::http {
 #endif
         }
         i32 opt = 1;
-        setsockopt(m_Config.server_socket, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+        setsockopt(m_ServerSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         if (inet_pton(AF_INET, m_Config.host.c_str(), &addr.sin_addr) != 1) {
             return stl::make_error<>("Invalid host address: {}", m_Config.host);
         }
         addr.sin_port = htons(m_Config.port);
-        if (bind(m_Config.server_socket, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        if (bind(m_ServerSocket, (sockaddr*)&addr, sizeof(addr)) < 0) {
 #ifdef _WIN32
             i32 err = WSAGetLastError();
-            closesocket(m_Config.server_socket);
+            closesocket(m_ServerSocket);
             return stl::make_error<>("Failed to bind to port {}: {}", std::to_string(m_Config.port), std::to_string(err));
 #else
-            close(m_Config.server_socket);
+            close(m_ServerSocket);
             return stl::make_error<>("Failed to bind to port {}: {}", std::to_string(m_Config.port), stl::string(strerror(errno)));
 #endif
         }
-        if (listen(m_Config.server_socket, 10) < 0) {
+        if (listen(m_ServerSocket, 10) < 0) {
 #ifdef _WIN32
             i32 err = WSAGetLastError();
-            closesocket(m_Config.server_socket);
+            closesocket(m_ServerSocket);
             return stl::make_error<>("Failed to listen: {}", std::to_string(err));
 #else
-            close(m_Config.server_socket);
+            close(m_ServerSocket);
             return stl::make_error<>("Failed to listen: {}", stl::string(strerror(errno)));
 #endif
         }
@@ -267,7 +267,7 @@ namespace sap::http {
         while (m_IsRunning.load()) {
             sockaddr_in client_addr{};
             socklen_t client_len = sizeof(client_addr);
-            i32 client_socket = accept(m_Config.server_socket, (sockaddr*)&client_addr, &client_len);
+            i32 client_socket = accept(m_ServerSocket, (sockaddr*)&client_addr, &client_len);
             if (client_socket < 0) {
 #ifdef _WIN32
                 int err = WSAGetLastError();
@@ -310,24 +310,24 @@ namespace sap::http {
                 m_RunThread.join();
             return;
         }
-        if (m_Config.server_socket >= 0) {
+        if (m_ServerSocket >= 0) {
 #ifdef _WIN32
-            ::shutdown(m_Config.server_socket, SD_BOTH);
+            ::shutdown(m_ServerSocket, SD_BOTH);
 #else
-            ::shutdown(m_Config.server_socket, SHUT_RDWR);
+            ::shutdown(m_ServerSocket, SHUT_RDWR);
 #endif
         }
         if (m_Config.is_multithreaded) {
             m_JobSystem.wait_idle();
         }
-        if (m_Config.server_socket >= 0) {
+        if (m_ServerSocket >= 0) {
 #ifdef _WIN32
-            closesocket(m_Config.server_socket);
+            closesocket(m_ServerSocket);
             WSACleanup();
 #else
-            close(m_Config.server_socket);
+            close(m_ServerSocket);
 #endif
-            m_Config.server_socket = -1;
+            m_ServerSocket = -1;
         }
         if (m_RunThread.joinable())
             m_RunThread.join();

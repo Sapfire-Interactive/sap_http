@@ -134,7 +134,6 @@ namespace sap::http {
     };
 
     struct ServerConfig {
-        i32 server_socket{-1};
         stl::string host{"127.0.0.1"};
         u16 port{8080};
         bool is_multithreaded{false};
@@ -167,6 +166,7 @@ namespace sap::http {
 
     private:
         ServerConfig m_Config;
+        i32 m_ServerSocket{-1};
         std::vector<Route> m_Routes;
         std::atomic<bool> m_IsRunning{false};
         sap::job_system m_JobSystem;

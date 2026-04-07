@@ -2,7 +2,7 @@
 #include "sap_http/net/http.h"
 
 TEST(ServerTest, CreateServer) {
-    sap::http::ServerConfig cfg{-1, "127.0.0.1", 8080, false};
+    sap::http::ServerConfig cfg{"127.0.0.1", 8080, false};
     sap::http::Server server(std::move(cfg));
     SUCCEED();
 }
@@ -37,7 +37,7 @@ TEST(ServerTest, MultipleRoutes) {
 }
 
 TEST(ServerTest, MultithreadedMode) {
-    sap::http::ServerConfig cfg{-1, "127.0.0.1", 8081, true};
+    sap::http::ServerConfig cfg{"127.0.0.1", 8081, true};
     sap::http::Server server{std::move(cfg)};
     SUCCEED();
 }
