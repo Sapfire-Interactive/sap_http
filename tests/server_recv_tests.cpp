@@ -1099,6 +1099,146 @@ TEST(ServerRecvTest, GracefulShutdownStopsAcceptingNewConnections) {
         close(sock);
 }
 
+TEST(ServerRecvTest, RouteParamSingleCaptured) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11400;
+    sap::http::Server server(std::move(cfg));
+    server.route("/users/:id", sap::http::EMethod::GET, [](const sap::http::Request& req) {
+        return sap::http::Response(sap::http::EStatusCode::OK, req.params.at("id"));
+    });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11400, "GET /users/123 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\n123") != std::string::npos);
+}
+
+TEST(ServerRecvTest, RouteParamMultipleCaptured) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11401;
+    sap::http::Server server(std::move(cfg));
+    server.route("/posts/:post_id/comments/:comment_id", sap::http::EMethod::GET,
+                 [](const sap::http::Request& req) {
+                     return sap::http::Response(sap::http::EStatusCode::OK,
+                                                req.params.at("post_id") + "/" + req.params.at("comment_id"));
+                 });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11401, "GET /posts/42/comments/7 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\n42/7") != std::string::npos);
+}
+
+TEST(ServerRecvTest, RouteParamSegmentCountMismatch) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11402;
+    sap::http::Server server(std::move(cfg));
+    server.route("/users/:id", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "matched"); });
+    auto t = start_server(server);
+
+    // Too few segments
+    auto resp1 = raw_request(11402, "GET /users HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    // Too many segments
+    auto resp2 = raw_request(11402, "GET /users/123/extra HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp1.find("404") != std::string::npos);
+    EXPECT_TRUE(resp2.find("404") != std::string::npos);
+}
+
+TEST(ServerRecvTest, RouteParamLiteralBeatsParam) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11403;
+    sap::http::Server server(std::move(cfg));
+    server.route("/users/:id", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "param"); });
+    server.route("/users/me", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "literal"); });
+    auto t = start_server(server);
+
+    auto resp_me = raw_request(11403, "GET /users/me HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    auto resp_id = raw_request(11403, "GET /users/123 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp_me.find("\r\n\r\nliteral") != std::string::npos);
+    EXPECT_TRUE(resp_id.find("\r\n\r\nparam") != std::string::npos);
+}
+
+TEST(ServerRecvTest, RouteParamLiteralBeatsParamRegardlessOfRegistrationOrder) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11404;
+    sap::http::Server server(std::move(cfg));
+    // Register literal first this time
+    server.route("/users/me", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "literal"); });
+    server.route("/users/:id", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "param"); });
+    auto t = start_server(server);
+
+    auto resp_me = raw_request(11404, "GET /users/me HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp_me.find("\r\n\r\nliteral") != std::string::npos);
+}
+
+TEST(ServerRecvTest, RouteParamWithDifferentMethods) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11405;
+    sap::http::Server server(std::move(cfg));
+    server.route("/users/:id", sap::http::EMethod::GET,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, "GET " + req.params.at("id")); });
+    server.route("/users/:id", sap::http::EMethod::DELETE,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, "DEL " + req.params.at("id")); });
+    auto t = start_server(server);
+
+    auto resp_get = raw_request(11405, "GET /users/5 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    auto resp_del = raw_request(11405, "DELETE /users/5 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp_get.find("\r\n\r\nGET 5") != std::string::npos);
+    EXPECT_TRUE(resp_del.find("\r\n\r\nDEL 5") != std::string::npos);
+}
+
+TEST(ServerRecvTest, RouteParamCapturesPercentDecodedValue) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11406;
+    sap::http::Server server(std::move(cfg));
+    server.route("/files/:name", sap::http::EMethod::GET,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.params.at("name")); });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11406, "GET /files/hello%20world HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\nhello world") != std::string::npos);
+}
+
+TEST(ServerRecvTest, RouteParamEmptyParamsForStaticRoute) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11407;
+    sap::http::Server server(std::move(cfg));
+    server.route("/static", sap::http::EMethod::GET, [](const sap::http::Request& req) {
+        return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.params.size()));
+    });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11407, "GET /static HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\n0") != std::string::npos);
+}
+
 TEST(ServerRecvTest, RunAsyncDoesNotBlock) {
     sap::http::ServerConfig cfg;
     cfg.port = 11310;

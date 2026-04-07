@@ -176,27 +176,76 @@ namespace sap::http {
                     resp.status_code = EStatusCode::MethodNotAllowed;
                     resp.body = "";
                 } else {
-                    // Find matching route using URL path with prefix matching
-                    // Routes are sorted by specificity (longer paths first)
-                    const Route* best_match = nullptr;
-                    size_t best_match_len = 0;
-                    for (const auto& route : m_Routes) {
-                        if (route.method == req.method) {
-                            // Check for exact match first
-                            if (route.path == req.url.path) {
-                                best_match = &route;
+                    // Split request path into segments once
+                    std::vector<stl::string> req_segments;
+                    {
+                        size_t start = 0;
+                        if (!req.url.path.empty() && req.url.path[0] == '/')
+                            start = 1;
+                        while (start <= req.url.path.size()) {
+                            size_t slash = req.url.path.find('/', start);
+                            size_t end = (slash == stl::string::npos) ? req.url.path.size() : slash;
+                            if (end > start)
+                                req_segments.push_back(req.url.path.substr(start, end - start));
+                            if (slash == stl::string::npos)
                                 break;
+                            start = slash + 1;
+                        }
+                    }
+
+                    // Score: literals matched. Higher wins. Static exact match gets a +1 boost.
+                    const Route* best_match = nullptr;
+                    int best_score = -1;
+                    std::map<stl::string, stl::string> best_params;
+
+                    for (const auto& route : m_Routes) {
+                        if (route.method != req.method)
+                            continue;
+                        if (route.has_params) {
+                            // Param routes require equal segment count
+                            if (route.segments.size() != req_segments.size())
+                                continue;
+                            std::map<stl::string, stl::string> params;
+                            int literals = 0;
+                            bool ok = true;
+                            for (size_t i = 0; i < route.segments.size(); ++i) {
+                                if (route.segments[i].is_param) {
+                                    params[route.segments[i].text] = req_segments[i];
+                                } else if (route.segments[i].text == req_segments[i]) {
+                                    ++literals;
+                                } else {
+                                    ok = false;
+                                    break;
+                                }
                             }
-                            // Check for prefix match (route path must be a prefix of request path,
-                            // AND must end on a segment boundary so /api doesn't match /api-v2)
-                            if (req.url.path.size() > route.path.size() && req.url.path.substr(0, route.path.size()) == route.path &&
-                                req.url.path[route.path.size()] == '/' && route.path.size() > best_match_len) {
+                            if (ok && literals > best_score) {
+                                best_score = literals;
                                 best_match = &route;
-                                best_match_len = route.path.size();
+                                best_params = std::move(params);
+                            }
+                        } else {
+                            // Static route: exact or segment-bounded prefix
+                            if (route.path == req.url.path) {
+                                int score = static_cast<int>(route.segments.size()) + 1000; // exact wins
+                                if (score > best_score) {
+                                    best_score = score;
+                                    best_match = &route;
+                                    best_params.clear();
+                                }
+                            } else if (req.url.path.size() > route.path.size() &&
+                                       req.url.path.substr(0, route.path.size()) == route.path &&
+                                       req.url.path[route.path.size()] == '/') {
+                                int score = static_cast<int>(route.segments.size());
+                                if (score > best_score) {
+                                    best_score = score;
+                                    best_match = &route;
+                                    best_params.clear();
+                                }
                             }
                         }
                     }
                     if (best_match) {
+                        req.params = std::move(best_params);
                         try {
                             resp = best_match->handler(req);
                         } catch (const std::exception& e) {

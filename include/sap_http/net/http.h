@@ -126,11 +126,18 @@ namespace sap::http {
 
     using RouteHandler = std::function<Response(const Request&)>;
 
+    struct RouteSegment {
+        stl::string text;  // literal text or param name (without ':')
+        bool is_param{false};
+    };
+
     struct Route {
         stl::string path;
         EMethod method;
         RouteHandler handler;
         bool is_regex{false};
+        std::vector<RouteSegment> segments;
+        bool has_params{false};
     };
 
     struct ServerConfig {
@@ -158,6 +165,29 @@ namespace sap::http {
             r.path = path;
             r.method = method;
             r.handler = std::forward<Handler>(handler);
+            // Pre-split path into segments and detect param segments (":name")
+            stl::string p(path);
+            size_t start = 0;
+            if (!p.empty() && p[0] == '/')
+                start = 1;
+            while (start <= p.size()) {
+                size_t slash = p.find('/', start);
+                size_t end = (slash == stl::string::npos) ? p.size() : slash;
+                if (end > start) {
+                    RouteSegment seg;
+                    if (p[start] == ':') {
+                        seg.is_param = true;
+                        seg.text = p.substr(start + 1, end - start - 1);
+                        r.has_params = true;
+                    } else {
+                        seg.text = p.substr(start, end - start);
+                    }
+                    r.segments.push_back(std::move(seg));
+                }
+                if (slash == stl::string::npos)
+                    break;
+                start = slash + 1;
+            }
             m_Routes.push_back(std::move(r));
         }
 
