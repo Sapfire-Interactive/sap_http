@@ -8,7 +8,7 @@ TEST(IntegrationTest, HttpBinGet) {
     ASSERT_TRUE(result.has_value());
     auto& response = result.value();
     EXPECT_TRUE(response.is_success());
-    EXPECT_EQ(response.status_code, 200);
+    EXPECT_EQ(response.status_code, sap::http::EStatusCode::OK);
     EXPECT_FALSE(response.body.empty());
 }
 
@@ -19,7 +19,7 @@ TEST(IntegrationTest, HttpBinPost) {
     ASSERT_TRUE(result.has_value());
     auto& response = result.value();
     EXPECT_TRUE(response.is_success());
-    EXPECT_EQ(response.status_code, 200);
+    EXPECT_EQ(response.status_code, sap::http::EStatusCode::OK);
 }
 
 TEST(IntegrationTest, HttpBinStatus404) {
@@ -29,7 +29,7 @@ TEST(IntegrationTest, HttpBinStatus404) {
     ASSERT_TRUE(result.has_value());
     auto& response = result.value();
     EXPECT_FALSE(response.is_success());
-    EXPECT_EQ(response.status_code, 404);
+    EXPECT_EQ(response.status_code, sap::http::EStatusCode::NotFound);
 }
 
 TEST(IntegrationTest, HttpBinHeaders) {
@@ -50,7 +50,7 @@ TEST(IntegrationTest, ServerClientIntegration) {
     sap::http::ServerConfig cfg{-1, "127.0.0.1", 9999};
     sap::http::Server server{std::move(cfg)};
     server.route("/test", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) { return sap::http::Response(200, "Integration test response"); });
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "Integration test response"); });
     auto start_result = server.start();
     ASSERT_TRUE(start_result.has_value()) << "Server failed to start: " << start_result.error();
     std::thread server_thread([&server]() { server.run(); });
@@ -60,7 +60,7 @@ TEST(IntegrationTest, ServerClientIntegration) {
     server.stop();
     server_thread.join();
     ASSERT_TRUE(result.has_value()) << "Client request failed: " << result.error();
-    EXPECT_EQ(result.value().status_code, 200);
+    EXPECT_EQ(result.value().status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(result.value().body, "Integration test response");
 }
 
@@ -68,7 +68,7 @@ TEST(IntegrationTest, ServerPostRequest) {
     sap::http::ServerConfig cfg{-1, "127.0.0.1", 10000};
     sap::http::Server server{std::move(cfg)};
     server.route("/api/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
-        sap::http::Response resp(200, req.body);
+        sap::http::Response resp(sap::http::EStatusCode::OK, req.body);
         resp.headers.set("Content-Type", "application/json");
         return resp;
     });

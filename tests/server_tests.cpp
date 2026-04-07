@@ -9,7 +9,7 @@ TEST(ServerTest, CreateServer) {
 
 TEST(ServerTest, AddRoute) {
     sap::http::Server server;
-    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request& req) { return sap::http::Response(200, "Test response"); });
+    server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, "Test response"); });
     SUCCEED();
 }
 
@@ -18,9 +18,9 @@ TEST(ServerTest, RouteHandlerWithJSON) {
     server.route("/api/data", sap::http::EMethod::POST, [](const sap::http::Request& req) {
         // Simulate JSON processing
         if (req.headers.get("Content-Type") == "application/json") {
-            return sap::http::Response(201, R"({"status": "created"})");
+            return sap::http::Response(sap::http::EStatusCode::Created, R"({"status": "created"})");
         }
-        return sap::http::Response(400, "Bad Request");
+        return sap::http::Response(sap::http::EStatusCode::BadRequest, "Bad Request");
     });
 
     SUCCEED();
@@ -28,11 +28,11 @@ TEST(ServerTest, RouteHandlerWithJSON) {
 
 TEST(ServerTest, MultipleRoutes) {
     sap::http::Server server;
-    server.route("/", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(200, "Home"); });
+    server.route("/", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "Home"); });
     server.route("/api/users", sap::http::EMethod::GET,
-                 [](const sap::http::Request&) { return sap::http::Response(200, R"([{"id": 1, "name": "John"}])"); });
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, R"([{"id": 1, "name": "John"}])"); });
     server.route("/api/users", sap::http::EMethod::POST,
-                 [](const sap::http::Request& req) { return sap::http::Response(201, "User created"); });
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::Created, "User created"); });
     SUCCEED();
 }
 

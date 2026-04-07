@@ -3,37 +3,37 @@
 
 TEST(ResponseTest, IsSuccessFor2xx) {
     sap::http::Response resp;
-    resp.status_code = 200;
+    resp.status_code = sap::http::EStatusCode::OK;
     EXPECT_TRUE(resp.is_success());
 
-    resp.status_code = 201;
+    resp.status_code = sap::http::EStatusCode::Created;
     EXPECT_TRUE(resp.is_success());
 
-    resp.status_code = 204;
+    resp.status_code = sap::http::EStatusCode::NoContent;
     EXPECT_TRUE(resp.is_success());
 
-    resp.status_code = 299;
+    resp.status_code = static_cast<sap::http::EStatusCode>(299);
     EXPECT_TRUE(resp.is_success());
 }
 
 TEST(ResponseTest, IsSuccessForNon2xx) {
     sap::http::Response resp;
-    resp.status_code = 199;
+    resp.status_code = static_cast<sap::http::EStatusCode>(199);
     EXPECT_FALSE(resp.is_success());
 
-    resp.status_code = 300;
+    resp.status_code = sap::http::EStatusCode::MultipleChoices;
     EXPECT_FALSE(resp.is_success());
 
-    resp.status_code = 404;
+    resp.status_code = sap::http::EStatusCode::NotFound;
     EXPECT_FALSE(resp.is_success());
 
-    resp.status_code = 500;
+    resp.status_code = sap::http::EStatusCode::InternalServerError;
     EXPECT_FALSE(resp.is_success());
 }
 
 TEST(ResponseTest, ConstructorWithBody) {
-    sap::http::Response resp(200, "Hello World");
-    EXPECT_EQ(resp.status_code, 200);
+    sap::http::Response resp(sap::http::EStatusCode::OK, "Hello World");
+    EXPECT_EQ(resp.status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(resp.body, "Hello World");
     EXPECT_EQ(resp.headers.get("Content-Length"), "11");
 }

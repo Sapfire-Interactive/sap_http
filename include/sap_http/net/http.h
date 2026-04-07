@@ -12,6 +12,8 @@
 #include <sap_core/stl/string.h>
 #include <sap_core/stl/vector.h>
 
+#include "sap_http/net/status_codes.h"
+
 namespace sap::http {
 
     enum class EMethod { GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS, UNKNOWN };
@@ -93,13 +95,16 @@ namespace sap::http {
     };
 
     struct Response {
-        i32 status_code{0};
+        EStatusCode status_code{};
         stl::string status_text;
         Headers headers;
         stl::string body;
         Response() = default;
-        Response(i32 code, stl::string body_content = "");
-        inline bool is_success() const { return status_code >= 200 && status_code < 300; }
+        Response(EStatusCode code, stl::string body_content = "");
+        inline bool is_success() const {
+            auto c = static_cast<i32>(status_code);
+            return c >= 200 && c < 300;
+        }
     };
 
     class Client {

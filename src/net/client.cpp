@@ -104,7 +104,9 @@ namespace sap::http {
                     if (std::getline(iss, line)) {
                         std::istringstream status_stream(line);
                         stl::string http_version;
-                        status_stream >> http_version >> resp.status_code;
+                        i32 code_num = 0;
+                        status_stream >> http_version >> code_num;
+                        resp.status_code = static_cast<EStatusCode>(code_num);
                         std::getline(status_stream, resp.status_text);
                         if (!resp.status_text.empty() && resp.status_text[0] == ' ') {
                             resp.status_text.erase(0, 1);

@@ -167,7 +167,7 @@ TEST(ClientRecvTest, ResponseWithinCapSucceeds) {
     sap::http::Client::max_response_size = saved;
 
     ASSERT_TRUE(result.has_value()) << result.error();
-    EXPECT_EQ(result.value().status_code, 200);
+    EXPECT_EQ(result.value().status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(result.value().body, body);
 }
 

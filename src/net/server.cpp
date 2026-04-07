@@ -86,35 +86,25 @@ namespace sap::http {
         return req;
     }
 
+    static const char* status_reason_phrase(EStatusCode code) {
+        switch (code) {
+        case EStatusCode::OK: return "OK";
+        case EStatusCode::Created: return "Created";
+        case EStatusCode::NoContent: return "No Content";
+        case EStatusCode::BadRequest: return "Bad Request";
+        case EStatusCode::NotFound: return "Not Found";
+        case EStatusCode::MethodNotAllowed: return "Method Not Allowed";
+        case EStatusCode::PayloadTooLarge: return "Payload Too Large";
+        case EStatusCode::RequestHeaderFieldsTooLarge: return "Request Header Fields Too Large";
+        case EStatusCode::InternalServerError: return "Internal Server Error";
+        default: return "Unknown";
+        }
+    }
+
     static stl::string build_response(const Response& resp) {
         std::ostringstream ss;
-        ss << "HTTP/1.1 " << resp.status_code << " ";
-        switch (resp.status_code) {
-        case 200:
-            ss << "OK";
-            break;
-        case 201:
-            ss << "Created";
-            break;
-        case 204:
-            ss << "No Content";
-            break;
-        case 400:
-            ss << "Bad Request";
-            break;
-        case 404:
-            ss << "Not Found";
-            break;
-        case 405:
-            ss << "Method Not Allowed";
-            break;
-        case 500:
-            ss << "Internal Server Error";
-            break;
-        default:
-            ss << "Unknown";
-            break;
-        }
+        ss << "HTTP/1.1 " << static_cast<i32>(resp.status_code) << " "
+           << status_reason_phrase(resp.status_code);
         ss << "\r\n";
         for (const auto& [key, value] : resp.headers.data) {
             ss << key << ": " << value << "\r\n";
@@ -168,7 +158,7 @@ namespace sap::http {
             if (req_result) {
                 auto& req = req_result.value();
                 if (req.method == EMethod::UNKNOWN) {
-                    resp.status_code = 405;
+                    resp.status_code = EStatusCode::MethodNotAllowed;
                     resp.body = "";
                 } else {
                     // Find matching route using URL path with prefix matching
@@ -195,7 +185,7 @@ namespace sap::http {
                         try {
                             resp = best_match->handler(req);
                         } catch (const std::exception& e) {
-                            resp = Response(500, stl::string("Error: ") + e.what());
+                            resp = Response(EStatusCode::InternalServerError, stl::string("Error: ") + e.what());
                         }
                     }
                 }
