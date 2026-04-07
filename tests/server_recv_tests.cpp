@@ -93,7 +93,8 @@ TEST(ServerRecvTest, PostBodyReadViaContentLength) {
 TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
     sap::http::ServerConfig cfg;
     cfg.port = 11002;
-    cfg.max_body_size = 64 * 1024; // 64KB
+    auto saved = sap::http::Server::max_body_size;
+    sap::http::Server::max_body_size = 64 * 1024;
     sap::http::Server server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
         // Echo back the body size so we can verify it arrived intact
@@ -115,6 +116,7 @@ TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
     auto resp = raw_request(11002, req);
     server.stop();
     t.join();
+    sap::http::Server::max_body_size = saved;
 
     EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
     EXPECT_TRUE(resp.find("16384") != std::string::npos);
@@ -123,7 +125,8 @@ TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
 TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
     sap::http::ServerConfig cfg;
     cfg.port = 11003;
-    cfg.max_body_size = 128; // tiny limit
+    auto saved = sap::http::Server::max_body_size;
+    sap::http::Server::max_body_size = 128;
     sap::http::Server server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
@@ -141,6 +144,7 @@ TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
     auto resp = raw_request(11003, req);
     server.stop();
     t.join();
+    sap::http::Server::max_body_size = saved;
 
     // Server should not return 200 — the body read should fail
     EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
@@ -149,7 +153,8 @@ TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
 TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
     sap::http::ServerConfig cfg;
     cfg.port = 11004;
-    cfg.max_header_size = 256; // tiny limit
+    auto saved = sap::http::Server::max_header_size;
+    sap::http::Server::max_header_size = 256;
     sap::http::Server server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
@@ -166,6 +171,7 @@ TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
     auto resp = raw_request(11004, req);
     server.stop();
     t.join();
+    sap::http::Server::max_header_size = saved;
 
     // Server should reject — no 200 response
     EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
@@ -1006,7 +1012,8 @@ TEST(ServerRecvTest, ChunkedRequestInvalidHexSize) {
 TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
     sap::http::ServerConfig cfg;
     cfg.port = 11208;
-    cfg.max_body_size = 100;
+    auto saved = sap::http::Server::max_body_size;
+    sap::http::Server::max_body_size = 100;
     sap::http::Server server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
@@ -1022,6 +1029,7 @@ TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
     auto resp = raw_request(11208, req);
     server.stop();
     t.join();
+    sap::http::Server::max_body_size = saved;
 
     EXPECT_TRUE(resp.find("400") != std::string::npos);
 }
@@ -1284,7 +1292,8 @@ TEST(ServerRecvTest, StopIsIdempotent) {
 TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
     sap::http::ServerConfig cfg;
     cfg.port = 11210;
-    cfg.max_body_size = 64 * 1024;
+    auto saved = sap::http::Server::max_body_size;
+    sap::http::Server::max_body_size = 64 * 1024;
     sap::http::Server server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
@@ -1300,6 +1309,7 @@ TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
     auto resp = raw_request(11210, req);
     server.stop();
     t.join();
+    sap::http::Server::max_body_size = saved;
 
     EXPECT_TRUE(resp.find("\r\n\r\n16384") != std::string::npos);
 }

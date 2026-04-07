@@ -131,7 +131,7 @@ namespace sap::http {
         timeout.tv_usec = (m_Config.timeout_ms % 1000) * 1000;
         setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeval));
         setsockopt(client_socket, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeval));
-        auto header_result = read_header(client_socket, m_Config.max_header_size);
+        auto header_result = read_header(client_socket, Server::max_header_size);
         if (header_result) {
             auto& raw = header_result.value();
             auto header_end = raw.find("\r\n\r\n");
@@ -143,7 +143,7 @@ namespace sap::http {
                 auto te = req_result.value().headers.get("Transfer-Encoding");
                 if (te.find("chunked") != stl::string::npos) {
                     stl::string leftover = raw.substr(header_end + 4);
-                    auto body_result = read_chunked_body(client_socket, leftover, m_Config.max_body_size);
+                    auto body_result = read_chunked_body(client_socket, leftover, Server::max_body_size);
                     if (body_result)
                         req_result.value().body = std::move(body_result.value());
                     else
@@ -158,7 +158,7 @@ namespace sap::http {
                             req_result = stl::make_error<Request>("Invalid Content-Length");
                         }
                         if (req_result && content_length > 0) {
-                            auto body_result = read_body(client_socket, raw, header_end, content_length, m_Config.max_body_size);
+                            auto body_result = read_body(client_socket, raw, header_end, content_length, Server::max_body_size);
                             if (body_result)
                                 req_result.value().body = std::move(body_result.value());
                             else

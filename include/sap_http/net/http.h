@@ -145,8 +145,6 @@ namespace sap::http {
         u16 port{8080};
         bool is_multithreaded{false};
         u32 timeout_ms = 10000;
-        stl::size_t max_header_size{8192};
-        stl::size_t max_body_size{1024 * 1024}; // 1MB
     };
 
     class Server {
@@ -154,6 +152,9 @@ namespace sap::http {
         Server() = default;
         Server(ServerConfig cfg);
         ~Server();
+        static inline stl::size_t max_header_size{8192};
+        static inline stl::size_t max_body_size{1024 * 1024}; // 1MB
+
         stl::result<> start();
         void run();
         void run_async();
