@@ -35,6 +35,7 @@ set(HTTP_HEADERS
 )
 
 set(HTTP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/net/common.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/headers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/url.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/request.cpp

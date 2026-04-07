@@ -819,3 +819,255 @@ TEST(ServerTimeoutTest, NormalRequestStillWorksWithTimeout) {
     EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
     EXPECT_TRUE(resp.find("world") != std::string::npos);
 }
+
+TEST(ServerRecvTest, ChunkedRequestSimple) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11200;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
+    auto t = start_server(server);
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "5\r\nhello\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11200, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nhello") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestMultipleChunks) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11201;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
+    auto t = start_server(server);
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "5\r\nhello\r\n"
+                      "1\r\n \r\n"
+                      "5\r\nworld\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11201, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\nhello world") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestHexSize) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11202;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
+    auto t = start_server(server);
+
+    std::string data(255, 'Z');
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "ff\r\n" + data + "\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11202, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\n255") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestWithExtensions) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11203;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
+    auto t = start_server(server);
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "5;name=value\r\nhello\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11203, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\nhello") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestWithTrailers) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11204;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
+    auto t = start_server(server);
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "5\r\nhello\r\n"
+                      "0\r\n"
+                      "X-Trailer: foo\r\n"
+                      "\r\n";
+    auto resp = raw_request(11204, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\nhello") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestEmptyBody) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11205;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
+    auto t = start_server(server);
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11205, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\n0") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestBinaryData) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11206;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
+        sap::http::Response resp(sap::http::EStatusCode::OK, req.body);
+        resp.headers.set("X-Body-Size", std::to_string(req.body.size()));
+        return resp;
+    });
+    auto t = start_server(server);
+
+    std::string data;
+    data.push_back('\x00');
+    data.push_back('\xff');
+    data.push_back('\r');
+    data.push_back('\n');
+    data.push_back('\x7f');
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "5\r\n" + data + "\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11206, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("x-body-size: 5") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestInvalidHexSize) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11207;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
+    auto t = start_server(server);
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "zzzz\r\nhello\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11207, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("400") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11208;
+    cfg.max_body_size = 100;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
+    auto t = start_server(server);
+
+    std::string data(200, 'A');
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "c8\r\n" + data + "\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11208, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("400") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestSpanningManyChunks) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11209;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
+    auto t = start_server(server);
+
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n";
+    for (int i = 0; i < 100; ++i)
+        req += "1\r\nA\r\n";
+    req += "0\r\n\r\n";
+
+    auto resp = raw_request(11209, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\n100") != std::string::npos);
+}
+
+TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11210;
+    cfg.max_body_size = 64 * 1024;
+    sap::http::Server server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
+    auto t = start_server(server);
+
+    std::string data(16384, 'B');
+    std::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Transfer-Encoding: chunked\r\n"
+                      "\r\n"
+                      "4000\r\n" + data + "\r\n"
+                      "0\r\n\r\n";
+    auto resp = raw_request(11210, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\n16384") != std::string::npos);
+}

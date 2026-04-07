@@ -1,4 +1,5 @@
 #include <cstring>
+#include "sap_http/net/common.h"
 #include "sap_http/net/http.h"
 
 #ifdef _WIN32
@@ -139,20 +140,30 @@ namespace sap::http {
 
             // Read body if Content-Length is present
             if (req_result) {
-                auto cl = req_result.value().headers.get("Content-Length");
-                if (!cl.empty()) {
-                    stl::size_t content_length = 0;
-                    try {
-                        content_length = std::stoull(cl);
-                    } catch (...) {
-                        req_result = stl::make_error<Request>("Invalid Content-Length");
-                    }
-                    if (req_result && content_length > 0) {
-                        auto body_result = read_body(client_socket, raw, header_end, content_length, m_Config.max_body_size);
-                        if (body_result)
-                            req_result.value().body = std::move(body_result.value());
-                        else
-                            req_result = stl::make_error<Request>("Body read failed");
+                auto te = req_result.value().headers.get("Transfer-Encoding");
+                if (te.find("chunked") != stl::string::npos) {
+                    stl::string leftover = raw.substr(header_end + 4);
+                    auto body_result = read_chunked_body(client_socket, leftover, m_Config.max_body_size);
+                    if (body_result)
+                        req_result.value().body = std::move(body_result.value());
+                    else
+                        req_result = stl::make_error<Request>("Chunked body read failed");
+                } else {
+                    auto cl = req_result.value().headers.get("Content-Length");
+                    if (!cl.empty()) {
+                        stl::size_t content_length = 0;
+                        try {
+                            content_length = std::stoull(cl);
+                        } catch (...) {
+                            req_result = stl::make_error<Request>("Invalid Content-Length");
+                        }
+                        if (req_result && content_length > 0) {
+                            auto body_result = read_body(client_socket, raw, header_end, content_length, m_Config.max_body_size);
+                            if (body_result)
+                                req_result.value().body = std::move(body_result.value());
+                            else
+                                req_result = stl::make_error<Request>("Body read failed");
+                        }
                     }
                 }
             }

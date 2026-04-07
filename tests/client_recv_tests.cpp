@@ -183,3 +183,233 @@ TEST(ClientRecvTest, EmptyContentLengthDoesNotCrash) {
 
     SUCCEED();
 }
+
+TEST(ClientRecvTest, ChunkedSimpleSingleChunk) {
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\nhello\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12100, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12100/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body, "hello");
+}
+
+TEST(ClientRecvTest, ChunkedMultipleChunks) {
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\nhello\r\n"
+        "1\r\n \r\n"
+        "5\r\nworld\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12101, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12101/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body, "hello world");
+}
+
+TEST(ClientRecvTest, ChunkedHexSize) {
+    // 1a hex = 26 bytes
+    std::string data(26, 'X');
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "1a\r\n" + data + "\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12102, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12102/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body.size(), 26u);
+    EXPECT_EQ(result.value().body, data);
+}
+
+TEST(ClientRecvTest, ChunkedUppercaseHexSize) {
+    std::string data(255, 'Y');
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "FF\r\n" + data + "\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12103, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12103/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body.size(), 255u);
+}
+
+TEST(ClientRecvTest, ChunkedWithExtensions) {
+    // Chunk extensions after `;` must be ignored
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5;name=value\r\nhello\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12104, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12104/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body, "hello");
+}
+
+TEST(ClientRecvTest, ChunkedWithTrailers) {
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\nhello\r\n"
+        "0\r\n"
+        "X-Trailer: foo\r\n"
+        "X-Other: bar\r\n"
+        "\r\n";
+    FakeServer fake(12105, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12105/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body, "hello");
+}
+
+TEST(ClientRecvTest, ChunkedEmptyBody) {
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12106, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12106/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body, "");
+}
+
+TEST(ClientRecvTest, ChunkedBinaryData) {
+    std::string data;
+    data.push_back('\x00');
+    data.push_back('\xff');
+    data.push_back('\r');
+    data.push_back('\n');
+    data.push_back('\x7f');
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\n" + data + "\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12107, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12107/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body.size(), 5u);
+    EXPECT_EQ(result.value().body, data);
+}
+
+TEST(ClientRecvTest, ChunkedInvalidHexSize) {
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "zzzz\r\nbody\r\n"
+        "0\r\n\r\n";
+    FakeServer fake(12108, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12108/");
+    auto result = fut.get();
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ClientRecvTest, ChunkedMissingCRLFAfterChunk) {
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\nhelloXX" // XX instead of CRLF
+        "0\r\n\r\n";
+    FakeServer fake(12109, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12109/");
+    auto result = fut.get();
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ClientRecvTest, ChunkedTruncatedBeforeTerminator) {
+    // Server closes connection mid-chunk
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\nhel";
+    FakeServer fake(12110, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12110/");
+    auto result = fut.get();
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ClientRecvTest, ChunkedTruncatedBeforeFinalZero) {
+    // Body chunk completes but connection drops before terminator
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\nhello\r\n";
+    FakeServer fake(12111, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12111/");
+    auto result = fut.get();
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ClientRecvTest, ChunkedExceedsMaxResponseSize) {
+    auto saved = sap::http::Client::max_response_size;
+    sap::http::Client::max_response_size = 100;
+
+    std::string data(200, 'A');
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "c8\r\n" + data + "\r\n" // c8 = 200
+        "0\r\n\r\n";
+    FakeServer fake(12112, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12112/");
+    auto result = fut.get();
+    sap::http::Client::max_response_size = saved;
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ClientRecvTest, ChunkedManySmallChunks) {
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n";
+    std::string expected;
+    for (int i = 0; i < 50; ++i) {
+        response += "1\r\nA\r\n";
+        expected += "A";
+    }
+    response += "0\r\n\r\n";
+    FakeServer fake(12113, std::move(response));
+
+    auto fut = sap::http::Client::get("http://127.0.0.1:12113/");
+    auto result = fut.get();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value().body, expected);
+}

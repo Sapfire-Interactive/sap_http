@@ -1,4 +1,5 @@
 #include <cstring>
+#include "sap_http/net/common.h"
 #include "sap_http/net/http.h"
 
 #ifdef _WIN32
@@ -142,12 +143,19 @@ namespace sap::http {
                     if (te.find("chunked") != stl::string::npos) {
                         is_chunked = true;
                     }
+                    if (is_chunked) {
+                        auto body_result = read_chunked_body(sock, buffer, Client::max_response_size);
+                        if (!body_result)
+                            return stl::make_error<Response>("{}", body_result.error());
+                        resp.body = std::move(body_result.value());
+                        return resp;
+                    }
                 }
             }
-            if (headers_done && !is_chunked && content_length == 0) {
+            if (headers_done && content_length == 0) {
                 break;
             }
-            if (headers_done && !is_chunked && content_length > 0) {
+            if (headers_done && content_length > 0) {
                 if (buffer.size() >= content_length) {
                     resp.body = buffer.substr(0, content_length);
                     break;
@@ -157,9 +165,9 @@ namespace sap::http {
         if (!headers_done) {
             return stl::make_error<Response>("Failed to parse response headers");
         }
-        if (!is_chunked && content_length == 0 && !buffer.empty()) {
+        if (content_length == 0 && !buffer.empty()) {
             resp.body = buffer;
-        } else if (!is_chunked && content_length > 0) {
+        } else if (content_length > 0) {
             resp.body = buffer.substr(0, content_length);
         }
         return resp;
