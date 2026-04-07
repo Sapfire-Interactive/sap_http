@@ -172,7 +172,24 @@ namespace sap::http {
             Response resp = req_result ? Response(EStatusCode::NotFound, "Not Found") : Response(EStatusCode::BadRequest, "");
             if (req_result) {
                 auto& req = req_result.value();
-                if (req.method == EMethod::UNKNOWN) {
+                bool short_circuited = false;
+                for (const auto& mw : m_Middleware) {
+                    try {
+                        auto mw_resp = mw(req);
+                        if (mw_resp) {
+                            resp = std::move(*mw_resp);
+                            short_circuited = true;
+                            break;
+                        }
+                    } catch (const std::exception& e) {
+                        resp = Response(EStatusCode::InternalServerError, stl::string("Middleware error: ") + e.what());
+                        short_circuited = true;
+                        break;
+                    }
+                }
+                if (short_circuited) {
+                    // skip routing
+                } else if (req.method == EMethod::UNKNOWN) {
                     resp.status_code = EStatusCode::MethodNotAllowed;
                     resp.body = "";
                 } else {
@@ -245,7 +262,8 @@ namespace sap::http {
                         }
                     }
                     if (best_match) {
-                        req.params = std::move(best_params);
+                        for (auto& [k, v] : best_params)
+                            req.params[k] = std::move(v);
                         try {
                             resp = best_match->handler(req);
                         } catch (const std::exception& e) {

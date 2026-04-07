@@ -1107,6 +1107,145 @@ TEST(ServerRecvTest, GracefulShutdownStopsAcceptingNewConnections) {
         close(sock);
 }
 
+TEST(ServerRecvTest, MiddlewarePassThrough) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11500;
+    sap::http::Server server(std::move(cfg));
+    std::atomic<int> mw_calls{0};
+    server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
+        ++mw_calls;
+        return std::nullopt;
+    });
+    server.route("/", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "ok"); });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11500, "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_EQ(mw_calls.load(), 1);
+    EXPECT_TRUE(resp.find("\r\n\r\nok") != std::string::npos);
+}
+
+TEST(ServerRecvTest, MiddlewareShortCircuit) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11501;
+    sap::http::Server server(std::move(cfg));
+    std::atomic<bool> handler_called{false};
+    server.use([](sap::http::Request& req) -> std::optional<sap::http::Response> {
+        if (req.headers.get("Authorization").empty())
+            return sap::http::Response(sap::http::EStatusCode::Unauthorized, "no auth");
+        return std::nullopt;
+    });
+    server.route("/secret", sap::http::EMethod::GET, [&](const sap::http::Request&) {
+        handler_called = true;
+        return sap::http::Response(sap::http::EStatusCode::OK, "secret");
+    });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11501, "GET /secret HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_FALSE(handler_called.load());
+    EXPECT_TRUE(resp.find("401") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nno auth") != std::string::npos);
+}
+
+TEST(ServerRecvTest, MiddlewareChainOrderAndShortCircuit) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11502;
+    sap::http::Server server(std::move(cfg));
+    std::vector<int> order;
+    std::mutex order_mu;
+    server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
+        std::lock_guard l(order_mu);
+        order.push_back(1);
+        return std::nullopt;
+    });
+    server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
+        std::lock_guard l(order_mu);
+        order.push_back(2);
+        return sap::http::Response(sap::http::EStatusCode::Forbidden, "stop");
+    });
+    server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
+        std::lock_guard l(order_mu);
+        order.push_back(3);
+        return std::nullopt;
+    });
+    server.route("/", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "ok"); });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11502, "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], 1);
+    EXPECT_EQ(order[1], 2);
+    EXPECT_TRUE(resp.find("403") != std::string::npos);
+}
+
+TEST(ServerRecvTest, MiddlewareCanMutateRequest) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11503;
+    sap::http::Server server(std::move(cfg));
+    server.use([](sap::http::Request& req) -> std::optional<sap::http::Response> {
+        req.params["user"] = "alice";
+        return std::nullopt;
+    });
+    server.route("/me", sap::http::EMethod::GET, [](const sap::http::Request& req) {
+        return sap::http::Response(sap::http::EStatusCode::OK, req.params.at("user"));
+    });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11503, "GET /me HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("\r\n\r\nalice") != std::string::npos);
+}
+
+TEST(ServerRecvTest, MiddlewareExceptionBecomes500) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11504;
+    sap::http::Server server(std::move(cfg));
+    server.use([](sap::http::Request&) -> std::optional<sap::http::Response> {
+        throw std::runtime_error("boom");
+    });
+    server.route("/", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "ok"); });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11504, "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("500") != std::string::npos);
+    EXPECT_TRUE(resp.find("boom") != std::string::npos);
+}
+
+TEST(ServerRecvTest, MiddlewareDoesNotRunOnParseFailure) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11505;
+    sap::http::Server server(std::move(cfg));
+    std::atomic<int> mw_calls{0};
+    server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
+        ++mw_calls;
+        return std::nullopt;
+    });
+    auto t = start_server(server);
+
+    auto resp = raw_request(11505, "GET /../etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_EQ(mw_calls.load(), 0);
+    EXPECT_TRUE(resp.find("400") != std::string::npos);
+}
+
 TEST(ServerRecvTest, RouteParamSingleCaptured) {
     sap::http::ServerConfig cfg;
     cfg.port = 11400;

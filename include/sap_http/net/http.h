@@ -4,6 +4,7 @@
 #include <chrono>
 #include <future>
 #include <map>
+#include <optional>
 #include <sap_core/types.h>
 #include <sstream>
 
@@ -125,6 +126,7 @@ namespace sap::http {
     };
 
     using RouteHandler = std::function<Response(const Request&)>;
+    using Middleware = std::function<std::optional<Response>(Request&)>;
 
     struct RouteSegment {
         stl::string text;  // literal text or param name (without ':')
@@ -159,6 +161,11 @@ namespace sap::http {
         void run();
         void run_async();
         void stop();
+
+        template <typename M>
+        void use(M&& middleware) {
+            m_Middleware.emplace_back(std::forward<M>(middleware));
+        }
 
         template <typename Handler>
         void route(stl::string_view path, EMethod method, Handler&& handler) {
@@ -199,6 +206,7 @@ namespace sap::http {
         ServerConfig m_Config;
         i32 m_ServerSocket{-1};
         std::vector<Route> m_Routes;
+        std::vector<Middleware> m_Middleware;
         std::atomic<bool> m_IsRunning{false};
         sap::job_system m_JobSystem;
         std::thread m_RunThread;
