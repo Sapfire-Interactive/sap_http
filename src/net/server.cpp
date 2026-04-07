@@ -64,8 +64,10 @@ namespace sap::http {
         first_line >> method_str >> path_str >> version;
 
         auto method = string_to_method(method_str);
-        // Create Request with URL containing just path and query
-        Request req(method, URL::from_path(path_str));
+        auto url_result = URL::from_path(path_str);
+        if (!url_result)
+            return stl::make_error<Request>("{}", url_result.error());
+        Request req(method, std::move(url_result.value()));
         if (method == EMethod::UNKNOWN)
             return req;
 
@@ -154,7 +156,9 @@ namespace sap::http {
                     }
                 }
             }
-            Response resp(404, "Not Found");
+            // Default: 400 Bad Request if the request couldn't be parsed,
+            // 404 Not Found if it parsed but no route matched.
+            Response resp = req_result ? Response(EStatusCode::NotFound, "Not Found") : Response(EStatusCode::BadRequest, "");
             if (req_result) {
                 auto& req = req_result.value();
                 if (req.method == EMethod::UNKNOWN) {

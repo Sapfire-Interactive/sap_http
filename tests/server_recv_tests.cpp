@@ -355,6 +355,205 @@ TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
     EXPECT_EQ(echoed, body);
 }
 
+TEST(ServerUrlDecodeTest, PercentEncodedSpaceInPathMatchesRoute) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11040;
+    sap::http::Server server(std::move(cfg));
+    server.route("/hello world", sap::http::EMethod::GET,
+                 [](const sap::http::Request& req) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /hello%20world HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11040, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos) << resp;
+    EXPECT_TRUE(resp.find("hello world") != std::string::npos);
+}
+
+TEST(ServerUrlDecodeTest, PercentEncodedSpecialCharsDecoded) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11041;
+    sap::http::Server server(std::move(cfg));
+    server.route("/users", sap::http::EMethod::GET,
+                 [](const sap::http::Request& req) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /users/john%40doe%3Aadmin HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11041, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos);
+    EXPECT_TRUE(resp.find("john@doe:admin") != std::string::npos);
+}
+
+TEST(ServerUrlDecodeTest, PathTraversalDotDotRejected) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11042;
+    sap::http::Server server(std::move(cfg));
+    server.route("/files", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, "file contents");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /files/../secret HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11042, req);
+    server.stop();
+    t.join();
+
+    // Must send a 400 Bad Request — not 404, not hang, not 200
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+        << "Expected 400 Bad Request, got: " << resp;
+    EXPECT_TRUE(resp.find("file contents") == std::string::npos);
+}
+
+TEST(ServerUrlDecodeTest, EncodedPathTraversalRejected) {
+    // %2e%2e decodes to ".." — must still be caught after decoding
+    sap::http::ServerConfig cfg;
+    cfg.port = 11043;
+    sap::http::Server server(std::move(cfg));
+    server.route("/files", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, "file contents");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /files/%2e%2e/secret HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11043, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+        << "Expected 400, got: " << resp;
+    EXPECT_TRUE(resp.find("file contents") == std::string::npos);
+}
+
+TEST(ServerUrlDecodeTest, DotsInsideSegmentNotRejected) {
+    // "file..txt" has ".." inside a segment — valid filename, not a traversal
+    sap::http::ServerConfig cfg;
+    cfg.port = 11044;
+    sap::http::Server server(std::move(cfg));
+    server.route("/files", sap::http::EMethod::GET,
+                 [](const sap::http::Request& req) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /files/file..txt HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11044, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos);
+    EXPECT_TRUE(resp.find("file..txt") != std::string::npos);
+}
+
+TEST(ServerUrlDecodeTest, MalformedPercentEscapeRejected) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11045;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, "OK");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /test%ZZ HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11045, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+        << "Expected 400 for malformed %%-escape, got: " << resp;
+}
+
+TEST(ServerUrlDecodeTest, TruncatedPercentEscapeRejected) {
+    sap::http::ServerConfig cfg;
+    cfg.port = 11046;
+    sap::http::Server server(std::move(cfg));
+    server.route("/test", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, "OK");
+                 });
+    auto t = start_server(server);
+
+    // Trailing bare '%' with no hex digits
+    std::string req = "GET /test% HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11046, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+        << "Expected 400 for truncated %%-escape, got: " << resp;
+}
+
+TEST(ServerUrlDecodeTest, EncodedSlashRejected) {
+    // %2F (encoded /) rejected so it can't smuggle past segment-aware routing
+    sap::http::ServerConfig cfg;
+    cfg.port = 11047;
+    sap::http::Server server(std::move(cfg));
+    server.route("/api", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, "api");
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /api%2Fsecret HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11047, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+        << "Expected 400 for %%2F in path, got: " << resp;
+}
+
+TEST(ServerUrlDecodeTest, PlusInPathStaysLiteral) {
+    // '+' must NOT be decoded to space in paths (that's a query-string rule only)
+    sap::http::ServerConfig cfg;
+    cfg.port = 11048;
+    sap::http::Server server(std::move(cfg));
+    server.route("/a+b", sap::http::EMethod::GET,
+                 [](const sap::http::Request& req) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
+                 });
+    auto t = start_server(server);
+
+    std::string req = "GET /a+b HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "\r\n";
+    auto resp = raw_request(11048, req);
+    server.stop();
+    t.join();
+
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos);
+    EXPECT_TRUE(resp.find("a+b") != std::string::npos);
+}
+
+// ---- Tests for issue #10: segment-aware route prefix matching ----
+
 TEST(ServerRouteTest, PrefixDoesNotMatchAcrossSegmentBoundary) {
     // /api should NOT match /api-v2 — they're different segments
     sap::http::ServerConfig cfg;

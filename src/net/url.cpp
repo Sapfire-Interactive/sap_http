@@ -2,15 +2,74 @@
 
 namespace sap::http {
 
-    URL URL::from_path(stl::string_view path_and_query) {
+    // Returns 0-15 for a valid hex digit, -1 otherwise.
+    static int hex_value(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+        if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+        return -1;
+    }
+
+    // Percent-decode a path. Rejects:
+    //   - malformed % escapes (%, %X, %XZ)
+    //   - encoded slashes (%2F / %2f) — would confuse segment-based routing
+    static stl::result<stl::string> percent_decode_path(stl::string_view s) {
+        stl::string out;
+        out.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (s[i] == '%') {
+                if (i + 2 >= s.size())
+                    return stl::make_error<stl::string>("Truncated percent escape");
+                int hi = hex_value(s[i + 1]);
+                int lo = hex_value(s[i + 2]);
+                if (hi < 0 || lo < 0)
+                    return stl::make_error<stl::string>("Invalid hex in percent escape");
+                char decoded = static_cast<char>((hi << 4) | lo);
+                if (decoded == '/')
+                    return stl::make_error<stl::string>("Encoded slash (%2F) not allowed in path");
+                out.push_back(decoded);
+                i += 2;
+            } else {
+                out.push_back(s[i]);
+            }
+        }
+        return out;
+    }
+
+    // Returns true if the path contains a ".." segment (path traversal attempt).
+    // A ".." segment is two literal dots bounded by slashes or string edges.
+    // Does NOT flag "/users/file..txt" (the ".." is not a full segment).
+    static bool has_traversal_segment(stl::string_view path) {
+        size_t start = 0;
+        for (size_t i = 0; i <= path.size(); ++i) {
+            if (i == path.size() || path[i] == '/') {
+                if (i - start == 2 && path[start] == '.' && path[start + 1] == '.')
+                    return true;
+                start = i + 1;
+            }
+        }
+        return false;
+    }
+
+    stl::result<URL> URL::from_path(stl::string_view path_and_query) {
         URL u;
+        stl::string_view raw_path;
         auto query_pos = path_and_query.find('?');
         if (query_pos != stl::string_view::npos) {
-            u.path = path_and_query.substr(0, query_pos);
+            raw_path = path_and_query.substr(0, query_pos);
             u.query = path_and_query.substr(query_pos);
         } else {
-            u.path = path_and_query;
+            raw_path = path_and_query;
         }
+
+        auto decoded = percent_decode_path(raw_path);
+        if (!decoded)
+            return stl::make_error<URL>("{}", decoded.error());
+        u.path = std::move(decoded.value());
+
+        if (has_traversal_segment(u.path))
+            return stl::make_error<URL>("Path traversal attempt rejected");
+
         return u;
     }
 

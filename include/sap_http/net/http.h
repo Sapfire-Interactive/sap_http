@@ -66,7 +66,7 @@ namespace sap::http {
 
         static stl::result<URL> parse(stl::string_view raw_url);
         stl::string full_path() const { return path + query; }
-        static URL from_path(stl::string_view path_and_query);
+        static stl::result<URL> from_path(stl::string_view path_and_query);
     };
 
     struct Headers {
