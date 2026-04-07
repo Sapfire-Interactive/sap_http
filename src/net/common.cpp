@@ -10,7 +10,7 @@ namespace sap::http {
 
     stl::result<stl::string> read_chunked_body(i32 sock, stl::string& buffer, stl::size_t max_size) {
         stl::string body;
-        char tmp[4096];
+        stl::byte tmp[4096];
         while (true) {
             stl::size_t crlf;
             while ((crlf = buffer.find("\r\n")) == stl::string::npos) {

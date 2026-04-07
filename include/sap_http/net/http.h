@@ -3,14 +3,16 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
-#include <map>
 #include <optional>
+#include <sap_core/stl/map.h>
+#include <sap_core/stl/vector.h>
 #include <sap_core/types.h>
 #include <sstream>
 
 #include <sap_core/job_system.h>
 #include <sap_core/stl/result.h>
 #include <sap_core/stl/string.h>
+#include <sap_core/stl/unique_ptr.h>
 #include <sap_core/stl/vector.h>
 
 #include "sap_http/net/status_codes.h"
@@ -71,7 +73,7 @@ namespace sap::http {
     };
 
     struct Headers {
-        std::map<stl::string, stl::string> data;
+        stl::map<stl::string, stl::string> data;
 
         void set(stl::string_view key, stl::string_view value);
         stl::string get(stl::string_view key) const;
@@ -86,7 +88,7 @@ namespace sap::http {
         std::chrono::milliseconds timeout{30000};
 
         // Optional: route params extracted by server routing (e.g., /users/:id)
-        std::map<stl::string, stl::string> params;
+        stl::map<stl::string, stl::string> params;
 
         Request() = default;
         Request(sap::http::EMethod m, sap::http::URL u);
@@ -138,7 +140,7 @@ namespace sap::http {
         EMethod method;
         RouteHandler handler;
         bool is_regex{false};
-        std::vector<RouteSegment> segments;
+        stl::vector<RouteSegment> segments;
         bool has_params{false};
     };
 
@@ -204,9 +206,9 @@ namespace sap::http {
 
     private:
         ServerConfig m_Config;
-        i32 m_ServerSocket{-1};
-        std::vector<Route> m_Routes;
-        std::vector<Middleware> m_Middleware;
+        
+        stl::vector<Route> m_Routes;
+        stl::vector<Middleware> m_Middleware;
         std::atomic<bool> m_IsRunning{false};
         sap::job_system m_JobSystem;
         std::thread m_RunThread;

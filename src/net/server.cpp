@@ -18,14 +18,14 @@ namespace sap::http {
 
     static stl::result<stl::string> read_header(i32 sock, stl::size_t max_header_size) {
         stl::string buf;
-        char chunk[4096];
+        stl::byte chunk[4096];
         while (buf.size() < max_header_size) {
             ssize_t n = recv(sock, chunk, sizeof(chunk), 0);
             if (n <= 0)
                 return stl::make_error<stl::string>("Connection closed during header read");
             buf.append(chunk, n);
             auto pos = buf.find("\r\n\r\n");
-            if (pos != std::string::npos) {
+            if (pos != stl::string::npos) {
                 if (pos > max_header_size)
                     return stl::make_error<stl::string>("Headers exceeded max size");
                 return buf;
@@ -38,10 +38,9 @@ namespace sap::http {
                                               stl::size_t max_body_bytes) {
         if (content_length > max_body_bytes)
             return stl::make_error<stl::string>("Body exceeds max size");
-        // We may have already read past the headers into the body
-        size_t body_start = header_end + 4; // past \r\n\r\n
+        stl::size_t body_start = header_end + 4;
         stl::string body = buf.substr(body_start);
-        char chunk[4096];
+        stl::byte chunk[4096];
         while (body.size() < content_length) {
             ssize_t n = recv(sock, chunk, sizeof(chunk), 0);
             if (n <= 0)
@@ -193,8 +192,7 @@ namespace sap::http {
                     resp.status_code = EStatusCode::MethodNotAllowed;
                     resp.body = "";
                 } else {
-                    // Split request path into segments once
-                    std::vector<stl::string> req_segments;
+                    stl::vector<stl::string> req_segments;
                     {
                         size_t start = 0;
                         if (!req.url.path.empty() && req.url.path[0] == '/')
@@ -209,20 +207,18 @@ namespace sap::http {
                             start = slash + 1;
                         }
                     }
-
                     // Score: literals matched. Higher wins. Static exact match gets a +1 boost.
                     const Route* best_match = nullptr;
                     int best_score = -1;
-                    std::map<stl::string, stl::string> best_params;
+                    stl::map<stl::string, stl::string> best_params;
 
                     for (const auto& route : m_Routes) {
                         if (route.method != req.method)
                             continue;
                         if (route.has_params) {
-                            // Param routes require equal segment count
                             if (route.segments.size() != req_segments.size())
                                 continue;
-                            std::map<stl::string, stl::string> params;
+                            stl::map<stl::string, stl::string> params;
                             int literals = 0;
                             bool ok = true;
                             for (size_t i = 0; i < route.segments.size(); ++i) {
@@ -243,7 +239,7 @@ namespace sap::http {
                         } else {
                             // Static route: exact or segment-bounded prefix
                             if (route.path == req.url.path) {
-                                int score = static_cast<int>(route.segments.size()) + 1000; // exact wins
+                                int score = static_cast<int>(route.segments.size()) + 1000;
                                 if (score > best_score) {
                                     best_score = score;
                                     best_match = &route;

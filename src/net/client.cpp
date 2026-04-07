@@ -83,9 +83,9 @@ namespace sap::http {
     stl::result<Response> Client::read_response(int sock) {
         Response resp;
         stl::string buffer;
-        char chunk[4096];
+        stl::byte chunk[4096];
         bool headers_done = false;
-        size_t content_length = 0;
+        stl::size_t content_length = 0;
         bool is_chunked = false;
         while (true) {
             int n = recv(sock, chunk, sizeof(chunk), 0);
@@ -135,14 +135,13 @@ namespace sap::http {
                         } catch (...) {
                             return stl::make_error<Response>("Invalid Content-Length");
                         }
-                        if (content_length > Client::max_response_size) {
+                        if (content_length > Client::max_response_size)
                             return stl::make_error<Response>("Content-Length exceeds max_response_size");
                         }
                     }
                     auto te = resp.headers.get("transfer-encoding");
-                    if (te.find("chunked") != stl::string::npos) {
+                    if (te.find("chunked") != stl::string::npos)
                         is_chunked = true;
-                    }
                     if (is_chunked) {
                         auto body_result = read_chunked_body(sock, buffer, Client::max_response_size);
                         if (!body_result)
@@ -152,24 +151,19 @@ namespace sap::http {
                     }
                 }
             }
-            if (headers_done && content_length == 0) {
+            if (headers_done && content_length == 0)
                 break;
-            }
-            if (headers_done && content_length > 0) {
-                if (buffer.size() >= content_length) {
+            if (headers_done && content_length > 0 && buffer.size() >= content_length) {
                     resp.body = buffer.substr(0, content_length);
                     break;
                 }
             }
-        }
-        if (!headers_done) {
+        if (!headers_done)
             return stl::make_error<Response>("Failed to parse response headers");
-        }
-        if (content_length == 0 && !buffer.empty()) {
+        if (content_length == 0 && !buffer.empty())
             resp.body = buffer;
-        } else if (content_length > 0) {
+        else if (content_length > 0)
             resp.body = buffer.substr(0, content_length);
-        }
         return resp;
     }
 
@@ -201,8 +195,7 @@ namespace sap::http {
     }
 
     stl::result<Response> Client::send(const Request& req) {
-        auto future = async_send(Request(req));
-        return future.get();
+        return async_send(Request(req)).get();
     }
 
     std::future<stl::result<Response>> Client::get(stl::string_view url_str) {
