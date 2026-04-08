@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.15)
 project(sap_http VERSION 1.0.0 LANGUAGES CXX)
 
+# Guard against being added more than once via nested submodules.
+if(TARGET sap::http)
+    return()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
