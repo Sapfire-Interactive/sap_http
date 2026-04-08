@@ -30,7 +30,9 @@ set(HTTP_SOURCES
 )
 
 set(SAP_CORE_BUILD_TESTS ${SAP_HTTP_BUILD_TESTS})
-add_subdirectory(sap_core)
+if(NOT TARGET sap::core)
+    add_subdirectory(sap_core)
+endif()
 set(SAP_NETWORK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(sap_network)
 
