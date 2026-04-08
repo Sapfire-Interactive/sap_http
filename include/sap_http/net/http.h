@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <mutex>
 #include <optional>
 #include <sap_core/stl/map.h>
 #include <sap_core/stl/vector.h>
@@ -231,6 +232,16 @@ namespace sap::http {
         std::atomic<bool> m_IsRunning{false};
         sap::job_system m_JobSystem;
         std::thread m_RunThread;
+
+        // Tracks in-flight client sockets so stop() can close those parked in
+        // read_header() waiting for the next keep-alive request. Sockets currently
+        // executing a handler are left alone so graceful shutdown lets them finish.
+        struct ClientEntry {
+            sap::network::ISocket* sock;
+            std::atomic<bool>* idle; // true while parked in read_header
+        };
+        std::mutex m_ClientsMutex;
+        stl::vector<ClientEntry> m_ActiveClients;
     };
 
 } // namespace sap::http

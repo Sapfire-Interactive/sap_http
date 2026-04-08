@@ -1,40 +1,66 @@
 #include "sap_http/net/common.h"
 #include "sap_http/net/http.h"
 
+#include <algorithm>
+#include <mutex>
+
 #include <sap_network/tcp_socket.h>
 
 namespace sap::http {
 
-    static stl::result<stl::string> read_header(sap::network::ISocket& sock, stl::size_t max_header_size) {
-        stl::string buf;
+    // Lowercase helper for case-insensitive header comparisons.
+    static stl::string to_lower(stl::string_view s) {
+        stl::string out;
+        out.reserve(s.size());
+        for (char c : s)
+            out.push_back((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
+        return out;
+    }
+
+    // Reads until "\r\n\r\n" is in `carry`, recv-ing more as needed. Returns the full
+    // buffer (headers plus any already-read body bytes); `carry` is cleared. Callers
+    // thread `carry` across requests so keep-alive connections preserve pipelined bytes
+    // that arrived after the current request's headers.
+    static stl::result<stl::string> read_header(sap::network::ISocket& sock, stl::size_t max_header_size,
+                                                stl::string& carry) {
         stl::byte chunk[4096];
-        while (buf.size() < max_header_size) {
-            auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
-            if (n == 0)
-                return stl::make_error<stl::string>("Connection closed during header read");
-            buf.append(reinterpret_cast<const char*>(chunk), n);
-            auto pos = buf.find("\r\n\r\n");
+        while (true) {
+            auto pos = carry.find("\r\n\r\n");
             if (pos != stl::string::npos) {
                 if (pos > max_header_size)
                     return stl::make_error<stl::string>("Headers exceeded max size");
-                return buf;
+                stl::string out = std::move(carry);
+                carry.clear();
+                return out;
             }
+            if (carry.size() > max_header_size)
+                return stl::make_error<stl::string>("Headers exceeded max size");
+            auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
+            if (n == 0)
+                return stl::make_error<stl::string>("Connection closed during header read");
+            carry.append(reinterpret_cast<const char*>(chunk), n);
         }
-        return stl::make_error<stl::string>("Headers exceeded max size");
     }
 
-    static stl::result<stl::string> read_body(sap::network::ISocket& sock, stl::string& buf, stl::size_t header_end,
-                                              stl::size_t content_length, stl::size_t max_body_bytes) {
+    // Reads exactly `content_length` body bytes. `raw` is the header-phase buffer
+    // (headers + already-read body prefix). Any bytes past content_length are moved
+    // into `carry` for the next pipelined request on the same connection.
+    static stl::result<stl::string> read_body(sap::network::ISocket& sock, const stl::string& raw,
+                                              stl::size_t header_end, stl::size_t content_length,
+                                              stl::size_t max_body_bytes, stl::string& carry) {
         if (content_length > max_body_bytes)
             return stl::make_error<stl::string>("Body exceeds max size");
         stl::size_t body_start = header_end + 4;
-        stl::string body = buf.substr(body_start);
+        stl::string body = raw.substr(body_start);
         stl::byte chunk[4096];
         while (body.size() < content_length) {
             auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
             if (n == 0)
                 return stl::make_error<stl::string>("Connection closed during body read");
             body.append(reinterpret_cast<const char*>(chunk), n);
+        }
+        if (body.size() > content_length) {
+            carry.assign(body, content_length, body.size() - content_length);
         }
         body.resize(content_length);
         return body;
@@ -56,9 +82,8 @@ namespace sap::http {
         if (!url_result)
             return stl::make_error<Request>("{}", url_result.error());
         Request req(method, std::move(url_result.value()));
-        if (method == EMethod::UNKNOWN)
-            return req;
-
+        // Note: we still parse headers for UNKNOWN methods so the keep-alive logic
+        // upstream can honor the client's Connection header before responding 405.
         while (std::getline(stream, line) && line != "\r" && !line.empty()) {
             if (line.back() == '\r')
                 line.pop_back();
@@ -73,6 +98,15 @@ namespace sap::http {
         }
 
         return req;
+    }
+
+    // Returns true if the request-line on the first line of `header_section` is
+    // HTTP/1.0. Used to pick the default keep-alive policy (1.0 defaults to close,
+    // 1.1 defaults to keep-alive).
+    static bool is_http_1_0(const stl::string& header_section) {
+        auto eol = header_section.find("\r\n");
+        stl::string line = (eol == stl::string::npos) ? stl::string(header_section) : header_section.substr(0, eol);
+        return line.find("HTTP/1.0") != stl::string::npos;
     }
 
     static const char* status_reason_phrase(EStatusCode code) {
@@ -90,14 +124,28 @@ namespace sap::http {
         }
     }
 
-    static stl::string build_response(const Response& resp) {
+    // Serializes a response for the wire. Automatically injects Content-Length (from
+    // resp.body.size()) and Connection, unless the handler set them explicitly. The
+    // automatic Content-Length is required for keep-alive framing — without it the
+    // client has no way to find the end of the body other than EOF, which is
+    // incompatible with connection reuse.
+    static stl::string build_response(const Response& resp, bool keep_alive) {
         std::ostringstream ss;
         ss << "HTTP/1.1 " << static_cast<i32>(resp.status_code) << " "
-           << status_reason_phrase(resp.status_code);
-        ss << "\r\n";
+           << status_reason_phrase(resp.status_code) << "\r\n";
+
+        bool has_content_length = false;
+        bool has_connection = false;
         for (const auto& [key, value] : resp.headers.data) {
+            auto lk = to_lower(key);
+            if (lk == "content-length") has_content_length = true;
+            else if (lk == "connection") has_connection = true;
             ss << key << ": " << value << "\r\n";
         }
+        if (!has_content_length)
+            ss << "Content-Length: " << resp.body.size() << "\r\n";
+        if (!has_connection)
+            ss << "Connection: " << (keep_alive ? "keep-alive" : "close") << "\r\n";
         ss << "\r\n";
         if (!resp.body.empty()) {
             ss << resp.body;
@@ -124,22 +172,63 @@ namespace sap::http {
 
     void Server::handle_client(stl::unique_ptr<sap::network::ISocket> client_socket) {
         auto& sock = *client_socket;
-        auto header_result = read_header(sock, Server::max_header_size);
-        if (header_result) {
+        // `idle` is true while we're parked in read_header() waiting for the next
+        // request on a keep-alive connection. Server::stop() closes only sockets
+        // whose entries are currently flagged idle, letting in-handler work finish.
+        std::atomic<bool> idle{false};
+        {
+            std::lock_guard<std::mutex> lk(m_ClientsMutex);
+            m_ActiveClients.push_back({&sock, &idle});
+        }
+        // RAII deregister: runs even on early break / exception.
+        struct Deregister {
+            Server* self;
+            sap::network::ISocket* s;
+            ~Deregister() {
+                std::lock_guard<std::mutex> lk(self->m_ClientsMutex);
+                auto& v = self->m_ActiveClients;
+                v.erase(std::remove_if(v.begin(), v.end(),
+                                       [s = s](const ClientEntry& e) { return e.sock == s; }),
+                        v.end());
+            }
+        } dereg{this, &sock};
+
+        // Carry buffer preserves bytes that arrive past the current request's framing
+        // so pipelined follow-up requests on the same keep-alive connection aren't lost.
+        stl::string carry;
+
+        while (true) {
+            idle.store(true, std::memory_order_release);
+            auto header_result = read_header(sock, Server::max_header_size, carry);
+            idle.store(false, std::memory_order_release);
+            if (!header_result) {
+                // Client closed or read timed out (keep-alive idle timeout). Either way
+                // we're done with this connection.
+                break;
+            }
             auto& raw = header_result.value();
             auto header_end = raw.find("\r\n\r\n");
             stl::string header_section = raw.substr(0, header_end);
+            bool http_1_0 = is_http_1_0(header_section);
             auto req_result = parse_request(header_section);
+
+            // Track whether we have to close after this response regardless of what
+            // the client asked for (e.g. chunked request body, or a malformed request).
+            bool force_close = false;
 
             if (req_result) {
                 auto te = req_result.value().headers.get("Transfer-Encoding");
                 if (te.find("chunked") != stl::string::npos) {
+                    // read_chunked_body doesn't currently thread carry forward, so after
+                    // a chunked request we can't safely continue pipelining on the same
+                    // connection. Serve this request then close.
                     stl::string leftover = raw.substr(header_end + 4);
                     auto body_result = read_chunked_body(sock, leftover, Server::max_body_size);
                     if (body_result)
                         req_result.value().body = std::move(body_result.value());
                     else
                         req_result = stl::make_error<Request>("Chunked body read failed");
+                    force_close = true;
                 } else {
                     auto cl = req_result.value().headers.get("Content-Length");
                     if (!cl.empty()) {
@@ -150,16 +239,33 @@ namespace sap::http {
                             req_result = stl::make_error<Request>("Invalid Content-Length");
                         }
                         if (req_result && content_length > 0) {
-                            auto body_result = read_body(sock, raw, header_end, content_length, Server::max_body_size);
+                            auto body_result = read_body(sock, raw, header_end, content_length,
+                                                         Server::max_body_size, carry);
                             if (body_result)
                                 req_result.value().body = std::move(body_result.value());
                             else
                                 req_result = stl::make_error<Request>("Body read failed");
+                        } else if (req_result && content_length == 0) {
+                            // No body: everything after \r\n\r\n in raw is already the
+                            // next pipelined request.
+                            stl::string tail = raw.substr(header_end + 4);
+                            if (!tail.empty())
+                                carry.insert(0, tail);
                         }
+                    } else {
+                        // No body declared. Any bytes after \r\n\r\n belong to the next request.
+                        stl::string tail = raw.substr(header_end + 4);
+                        if (!tail.empty())
+                            carry.insert(0, tail);
                     }
                 }
             }
+
             Response resp = req_result ? Response(EStatusCode::NotFound, "Not Found") : Response(EStatusCode::BadRequest, "");
+            if (!req_result) {
+                // Bad request: abandon the connection — the stream is in an unknown state.
+                force_close = true;
+            }
             if (req_result) {
                 auto& req = req_result.value();
                 bool short_circuited = false;
@@ -259,8 +365,28 @@ namespace sap::http {
                     }
                 }
             }
-            stl::string response_str = build_response(resp);
+
+            // Decide keep-alive:
+            //   HTTP/1.1: keep-alive by default, unless request header says "close"
+            //   HTTP/1.0: close by default, unless request header says "keep-alive"
+            //   force_close overrides everything (bad request, chunked body, etc.)
+            bool keep_alive = !force_close;
+            if (keep_alive) {
+                stl::string conn_hdr;
+                if (req_result)
+                    conn_hdr = to_lower(req_result.value().headers.get("Connection"));
+                if (http_1_0) {
+                    keep_alive = (conn_hdr.find("keep-alive") != stl::string::npos);
+                } else {
+                    keep_alive = (conn_hdr.find("close") == stl::string::npos);
+                }
+            }
+
+            stl::string response_str = build_response(resp, keep_alive);
             send_all(sock, response_str);
+
+            if (!keep_alive)
+                break;
         }
         sock.close();
     }
@@ -321,6 +447,17 @@ namespace sap::http {
         }
         if (m_ServerSocket)
             m_ServerSocket->close();
+        // Close any client sockets currently parked in read_header() waiting for the
+        // next keep-alive request, so their handle_client thread unwinds immediately.
+        // Sockets currently inside a route handler are left alone so the handler can
+        // finish and write its response — that's the graceful-shutdown contract.
+        {
+            std::lock_guard<std::mutex> lk(m_ClientsMutex);
+            for (const auto& e : m_ActiveClients) {
+                if (e.idle->load(std::memory_order_acquire))
+                    e.sock->close();
+            }
+        }
         if (m_Config.is_multithreaded) {
             m_JobSystem.wait_idle();
         }
