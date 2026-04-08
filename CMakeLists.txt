@@ -126,6 +126,7 @@ if(SAP_HTTP_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/server_recv_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_recv_tests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_pool_tests.cpp
     )
 
     if(SAP_HTTP_BUILD_STATIC)

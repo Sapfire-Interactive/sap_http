@@ -117,10 +117,33 @@ namespace sap::http {
         // Set higher for large downloads, lower for tighter resource limits.
         static inline stl::size_t max_response_size{10 * 1024 * 1024};
 
+        // How long an idle pooled connection may sit before being evicted on next checkout.
+        // Matches nginx's default keepalive_timeout. Set to zero to disable pooling.
+        static inline std::chrono::seconds idle_timeout{90};
+
+        Client();
+        ~Client();
+        Client(const Client&) = delete;
+        Client& operator=(const Client&) = delete;
+
+        // Drop all pooled connections on this instance.
+        void clear_pool();
+
+        std::future<stl::result<Response>> async_send_req(Request req);
+        stl::result<Response> send_req(const Request& req);
+
+        // Default shared instance backing the static convenience methods below.
+        static Client& default_instance();
+
         static std::future<stl::result<Response>> async_send(Request req);
         static stl::result<Response> send(const Request& req);
         static std::future<stl::result<Response>> get(stl::string_view url_str);
         static std::future<stl::result<Response>> post(stl::string_view url_str, stl::string body);
+
+        struct Impl;
+
+    private:
+        stl::unique_ptr<Impl> m_Impl;
     };
 
     using RouteHandler = std::function<Response(const Request&)>;
