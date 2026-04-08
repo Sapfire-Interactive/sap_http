@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
 #include "sap_http/net/http.h"
 
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <sap_network/tcp_socket.h>
 
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <thread>
 
 // Helper: start a server on the given port, run it in a background thread,
@@ -19,50 +18,59 @@ static std::thread start_server(sap::http::Server& server) {
     return t;
 }
 
-// Helper: open a raw TCP socket to 127.0.0.1:port and return the fd.
-// Caller is responsible for closing.
-static int raw_connect(u16 port) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    if (connect(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        close(sock);
-        return -1;
-    }
+// Helper: open a TCPSocket to 127.0.0.1:port. Returns nullptr on failure.
+// Caller owns the returned socket.
+static std::unique_ptr<sap::network::TCPSocket> raw_connect(u16 port) {
+    sap::network::SocketConfig sc;
+    sc.host = "127.0.0.1";
+    sc.port = port;
+    sc.connect_timeout = std::chrono::milliseconds{2000};
+    sc.recv_timeout = std::chrono::milliseconds{5000};
+    sc.send_timeout = std::chrono::milliseconds{2000};
+    auto sock = std::make_unique<sap::network::TCPSocket>(std::move(sc));
+    if (!sock->valid() || !sock->connect())
+        return nullptr;
     return sock;
 }
 
-// Helper: open a raw TCP socket to 127.0.0.1:port, send raw bytes, read response.
+// Send a raw HTTP request and read the full response. Injects "Connection: close"
+// into the request headers (unless already present) so the server closes the
+// connection after responding — otherwise the keep-alive read loop here would block
+// until the server's idle timeout fires.
 static std::string raw_request(u16 port, const std::string& data) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    if (connect(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        close(sock);
+    auto sock = raw_connect(port);
+    if (!sock)
         return "";
+
+    // Inject Connection: close before the header terminator if the caller didn't
+    // already specify a Connection header.
+    std::string payload = data;
+    if (payload.find("Connection:") == std::string::npos &&
+        payload.find("connection:") == std::string::npos) {
+        auto term = payload.find("\r\n\r\n");
+        if (term != std::string::npos) {
+            payload.insert(term + 2, "Connection: close\r\n");
+        }
     }
 
     size_t sent = 0;
-    while (sent < data.size()) {
-        ssize_t n = ::send(sock, data.c_str() + sent, data.size() - sent, 0);
-        if (n <= 0)
+    while (sent < payload.size()) {
+        auto n = sock->send(stl::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(payload.data() + sent), payload.size() - sent));
+        if (n == 0)
             break;
         sent += n;
     }
 
     std::string response;
-    char buf[4096];
+    std::byte buf[4096];
     while (true) {
-        ssize_t n = recv(sock, buf, sizeof(buf), 0);
-        if (n <= 0)
+        auto n = sock->recv(stl::span<std::byte>(buf, sizeof(buf)));
+        if (n == 0)
             break;
-        response.append(buf, n);
+        response.append(reinterpret_cast<const char*>(buf), n);
     }
-    close(sock);
+    sock->close();
     return response;
 }
 
@@ -229,20 +237,20 @@ TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
 
     // Connect but send nothing — classic slowloris
     auto start = std::chrono::steady_clock::now();
-    int sock = raw_connect(11007);
-    ASSERT_GE(sock, 0) << "Failed to connect";
+    auto sock = raw_connect(11007);
+    ASSERT_NE(sock, nullptr) << "Failed to connect";
 
     // Wait for the server to close the connection
-    char buf[128];
-    ssize_t n = recv(sock, buf, sizeof(buf), 0);
+    std::byte buf[128];
+    auto n = sock->recv(stl::span<std::byte>(buf, sizeof(buf)));
     auto elapsed = std::chrono::steady_clock::now() - start;
-    close(sock);
+    sock->close();
 
     server.stop();
     t.join();
 
     // recv should have returned <= 0 (connection closed by server)
-    EXPECT_LE(n, 0);
+    EXPECT_EQ(n, 0u);
     // Should have taken roughly the timeout duration, not forever.
     // Allow generous upper bound (3s) but it must not hang.
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
@@ -259,21 +267,22 @@ TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
     auto t = start_server(server);
 
     // Send partial headers (no \r\n\r\n terminator) then stall
-    int sock = raw_connect(11008);
-    ASSERT_GE(sock, 0);
+    auto sock = raw_connect(11008);
+    ASSERT_NE(sock, nullptr);
     std::string partial = "GET /test HTTP/1.1\r\nHost: 127.0.0.1\r\n";
-    ::send(sock, partial.c_str(), partial.size(), 0);
+    sock->send(stl::span<const std::byte>(
+        reinterpret_cast<const std::byte*>(partial.data()), partial.size()));
 
     auto start = std::chrono::steady_clock::now();
-    char buf[128];
-    ssize_t n = recv(sock, buf, sizeof(buf), 0);
+    std::byte buf[128];
+    auto n = sock->recv(stl::span<std::byte>(buf, sizeof(buf)));
     auto elapsed = std::chrono::steady_clock::now() - start;
-    close(sock);
+    sock->close();
 
     server.stop();
     t.join();
 
-    EXPECT_LE(n, 0);
+    EXPECT_EQ(n, 0u);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
     EXPECT_GE(ms, 400);
     EXPECT_LE(ms, 3000);
@@ -1101,10 +1110,8 @@ TEST(ServerRecvTest, GracefulShutdownStopsAcceptingNewConnections) {
     t.join();
 
     // New connection after stop should fail to connect
-    int sock = raw_connect(11301);
-    EXPECT_LT(sock, 0);
-    if (sock >= 0)
-        close(sock);
+    auto sock = raw_connect(11301);
+    EXPECT_EQ(sock, nullptr);
 }
 
 TEST(ServerRecvTest, MiddlewarePassThrough) {

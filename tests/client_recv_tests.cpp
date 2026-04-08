@@ -1,50 +1,50 @@
 #include <gtest/gtest.h>
 #include "sap_http/net/http.h"
 
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <sap_network/tcp_socket.h>
 
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <thread>
 
-// Minimal raw TCP server that listens on `port`, accepts one connection,
-// reads (and discards) the request, then sends the canned `response` bytes
-// back. Runs in a background thread; returns immediately after binding.
+// Minimal TCP server (built on sap::network::TCPSocket) that listens on `port`,
+// accepts one connection, drains the request headers, then sends the canned
+// `response` bytes and closes. Runs in a background thread.
 struct FakeServer {
-    int listen_sock = -1;
+    std::unique_ptr<sap::network::TCPSocket> listener;
     std::thread thread;
     std::atomic<bool> done{false};
 
     FakeServer(u16 port, std::string response) {
-        listen_sock = socket(AF_INET, SOCK_STREAM, 0);
-        int opt = 1;
-        setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-        bind(listen_sock, (sockaddr*)&addr, sizeof(addr));
-        listen(listen_sock, 1);
+        sap::network::SocketConfig sc;
+        sc.host = "127.0.0.1";
+        sc.port = port;
+        sc.reuse_addr = true;
+        sc.listen_backlog = 1;
+        sc.recv_timeout = std::chrono::milliseconds{2000};
+        sc.send_timeout = std::chrono::milliseconds{2000};
+        listener = std::make_unique<sap::network::TCPSocket>(std::move(sc));
+        if (!listener->valid() || !listener->bind() || !listener->listen())
+            return;
 
         thread = std::thread([this, response = std::move(response)]() {
-            int client = accept(listen_sock, nullptr, nullptr);
-            if (client < 0) return;
-            // Drain the request (best-effort, non-blocking-ish)
-            char buf[4096];
-            // Read until we see end of headers, then bail
+            auto client = listener->accept();
+            if (!client) return;
+            // Drain the request headers (best-effort).
+            std::byte buf[4096];
             std::string acc;
             while (true) {
-                ssize_t n = recv(client, buf, sizeof(buf), 0);
-                if (n <= 0) break;
-                acc.append(buf, n);
+                auto n = client->recv(stl::span<std::byte>(buf, sizeof(buf)));
+                if (n == 0) break;
+                acc.append(reinterpret_cast<const char*>(buf), n);
                 if (acc.find("\r\n\r\n") != std::string::npos) break;
             }
-            ::send(client, response.c_str(), response.size(), 0);
+            client->send(stl::span<const std::byte>(
+                reinterpret_cast<const std::byte*>(response.data()), response.size()));
             // Close immediately so client's read loop exits
-            close(client);
+            client->close();
             done = true;
         });
         // Give the listener a moment to be ready
@@ -53,7 +53,7 @@ struct FakeServer {
 
     ~FakeServer() {
         if (thread.joinable()) thread.join();
-        if (listen_sock >= 0) close(listen_sock);
+        if (listener) listener->close();
     }
 };
 
