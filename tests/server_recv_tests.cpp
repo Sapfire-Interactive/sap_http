@@ -10,24 +10,24 @@
 
 // Helper: start a server on the given port, run it in a background thread,
 // return the thread. Caller is responsible for stop() + join().
-static std::thread start_server(sap::http::Server& server) {
+static stl::thread start_server(sap::http::Server& server) {
     auto res = server.start();
     EXPECT_TRUE(res.has_value()) << "Server failed to start: " << res.error();
-    std::thread t([&server]() { server.run(); });
+    stl::thread t([&server]() { server.run(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     return t;
 }
 
 // Helper: open a TCPSocket to 127.0.0.1:port. Returns nullptr on failure.
 // Caller owns the returned socket.
-static std::unique_ptr<sap::network::TCPSocket> raw_connect(u16 port) {
+static stl::unique_ptr<sap::network::TCPSocket> raw_connect(u16 port) {
     sap::network::SocketConfig sc;
     sc.host = "127.0.0.1";
     sc.port = port;
     sc.connect_timeout = std::chrono::milliseconds{2000};
     sc.recv_timeout = std::chrono::milliseconds{5000};
     sc.send_timeout = std::chrono::milliseconds{2000};
-    auto sock = std::make_unique<sap::network::TCPSocket>(std::move(sc));
+    auto sock = stl::make_unique<sap::network::TCPSocket>(std::move(sc));
     if (!sock->valid() || !sock->connect())
         return nullptr;
     return sock;
@@ -37,35 +37,35 @@ static std::unique_ptr<sap::network::TCPSocket> raw_connect(u16 port) {
 // into the request headers (unless already present) so the server closes the
 // connection after responding — otherwise the keep-alive read loop here would block
 // until the server's idle timeout fires.
-static std::string raw_request(u16 port, const std::string& data) {
+static stl::string raw_request(u16 port, const stl::string& data) {
     auto sock = raw_connect(port);
     if (!sock)
         return "";
 
     // Inject Connection: close before the header terminator if the caller didn't
     // already specify a Connection header.
-    std::string payload = data;
-    if (payload.find("Connection:") == std::string::npos &&
-        payload.find("connection:") == std::string::npos) {
+    stl::string payload = data;
+    if (payload.find("Connection:") == stl::string::npos &&
+        payload.find("connection:") == stl::string::npos) {
         auto term = payload.find("\r\n\r\n");
-        if (term != std::string::npos) {
+        if (term != stl::string::npos) {
             payload.insert(term + 2, "Connection: close\r\n");
         }
     }
 
     size_t sent = 0;
     while (sent < payload.size()) {
-        auto n = sock->send(stl::span<const std::byte>(
-            reinterpret_cast<const std::byte*>(payload.data() + sent), payload.size() - sent));
+        auto n = sock->send(stl::span<const stl::byte>(
+            reinterpret_cast<const stl::byte*>(payload.data() + sent), payload.size() - sent));
         if (n == 0)
             break;
         sent += n;
     }
 
-    std::string response;
-    std::byte buf[4096];
+    stl::string response;
+    stl::byte buf[4096];
     while (true) {
-        auto n = sock->recv(stl::span<std::byte>(buf, sizeof(buf)));
+        auto n = sock->recv(stl::span<stl::byte>(buf, sizeof(buf)));
         if (n == 0)
             break;
         response.append(reinterpret_cast<const char*>(buf), n);
@@ -81,8 +81,8 @@ TEST(ServerRecvTest, PostBodyReadViaContentLength) {
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string body = R"({"key": "value"})";
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string body = R"({"key": "value"})";
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Content-Length: " +
         std::to_string(body.size()) +
@@ -94,8 +94,8 @@ TEST(ServerRecvTest, PostBodyReadViaContentLength) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find(body) != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find(body) != stl::string::npos);
 }
 
 TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
@@ -112,8 +112,8 @@ TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
 
     // 16KB body — larger than the 4KB recv chunk in read_body,
     // so it must span multiple recv calls
-    std::string body(16384, 'A');
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string body(16384, 'A');
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Content-Length: " +
         std::to_string(body.size()) +
@@ -126,8 +126,8 @@ TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
     t.join();
     sap::http::Server::max_body_size = saved;
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("16384") != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("16384") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
@@ -140,8 +140,8 @@ TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
     auto t = start_server(server);
 
     // Claim a body larger than max_body_size
-    std::string body(256, 'X');
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string body(256, 'X');
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Content-Length: " +
         std::to_string(body.size()) +
@@ -155,7 +155,7 @@ TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
     sap::http::Server::max_body_size = saved;
 
     // Server should not return 200 — the body read should fail
-    EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") == stl::string::npos);
 }
 
 TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
@@ -168,8 +168,8 @@ TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
     auto t = start_server(server);
 
     // Craft headers that exceed 256 bytes total
-    std::string big_header(300, 'H');
-    std::string req = "GET /test HTTP/1.1\r\n"
+    stl::string big_header(300, 'H');
+    stl::string req = "GET /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "X-Junk: " +
         big_header +
@@ -182,7 +182,7 @@ TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
     sap::http::Server::max_header_size = saved;
 
     // Server should reject — no 200 response
-    EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") == stl::string::npos);
 }
 
 TEST(ServerRecvTest, InvalidContentLengthDoesNotCrash) {
@@ -193,7 +193,7 @@ TEST(ServerRecvTest, InvalidContentLengthDoesNotCrash) {
     auto t = start_server(server);
 
     // Send a request with garbage Content-Length
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Content-Length: not-a-number\r\n"
                       "\r\n"
@@ -205,7 +205,7 @@ TEST(ServerRecvTest, InvalidContentLengthDoesNotCrash) {
 
     // Should not crash — we just expect some response (not 200)
     // An empty response is also acceptable (connection closed)
-    EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") == stl::string::npos);
 }
 
 TEST(ServerRecvTest, GetWithNoBodyWorks) {
@@ -215,7 +215,7 @@ TEST(ServerRecvTest, GetWithNoBodyWorks) {
     server.route("/hello", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "world"); });
     auto t = start_server(server);
 
-    std::string req = "GET /hello HTTP/1.1\r\n"
+    stl::string req = "GET /hello HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
 
@@ -223,8 +223,8 @@ TEST(ServerRecvTest, GetWithNoBodyWorks) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("world") != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("world") != stl::string::npos);
 }
 
 TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
@@ -241,8 +241,8 @@ TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
     ASSERT_NE(sock, nullptr) << "Failed to connect";
 
     // Wait for the server to close the connection
-    std::byte buf[128];
-    auto n = sock->recv(stl::span<std::byte>(buf, sizeof(buf)));
+    stl::byte buf[128];
+    auto n = sock->recv(stl::span<stl::byte>(buf, sizeof(buf)));
     auto elapsed = std::chrono::steady_clock::now() - start;
     sock->close();
 
@@ -269,13 +269,13 @@ TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
     // Send partial headers (no \r\n\r\n terminator) then stall
     auto sock = raw_connect(11008);
     ASSERT_NE(sock, nullptr);
-    std::string partial = "GET /test HTTP/1.1\r\nHost: 127.0.0.1\r\n";
-    sock->send(stl::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(partial.data()), partial.size()));
+    stl::string partial = "GET /test HTTP/1.1\r\nHost: 127.0.0.1\r\n";
+    sock->send(stl::span<const stl::byte>(
+        reinterpret_cast<const stl::byte*>(partial.data()), partial.size()));
 
     auto start = std::chrono::steady_clock::now();
-    std::byte buf[128];
-    auto n = sock->recv(stl::span<std::byte>(buf, sizeof(buf)));
+    stl::byte buf[128];
+    auto n = sock->recv(stl::span<stl::byte>(buf, sizeof(buf)));
     auto elapsed = std::chrono::steady_clock::now() - start;
     sock->close();
 
@@ -302,7 +302,7 @@ TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
 
     // Body with null bytes, newlines, and high bytes — would all be mangled
     // by the old getline-based parser
-    std::string body;
+    stl::string body;
     body.push_back('\x00');
     body.push_back('\xFF');
     body.push_back('\n');
@@ -312,7 +312,7 @@ TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
     body.append("normal text");
     body.push_back('\x00');
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Content-Length: " +
         std::to_string(body.size()) +
@@ -324,18 +324,18 @@ TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
     server.stop();
     t.join();
 
-    ASSERT_TRUE(resp.find("200 OK") != std::string::npos);
+    ASSERT_TRUE(resp.find("200 OK") != stl::string::npos);
     // Confirm the server saw the exact byte count we sent.
     // Headers::set lowercases keys, so search for the lowercase form.
-    std::string expected = "x-body-size: " + std::to_string(body.size());
-    EXPECT_TRUE(resp.find(expected) != std::string::npos) << "Expected " << expected << " in response";
+    stl::string expected = "x-body-size: " + std::to_string(body.size());
+    EXPECT_TRUE(resp.find(expected) != stl::string::npos) << "Expected " << expected << " in response";
 
     // Also verify the echoed body matches byte-for-byte.
     // Use find (not rfind) — the FIRST \r\n\r\n is the header/body boundary;
     // any subsequent occurrences are part of the body.
     auto body_start = resp.find("\r\n\r\n");
-    ASSERT_NE(body_start, std::string::npos);
-    std::string echoed = resp.substr(body_start + 4);
+    ASSERT_NE(body_start, stl::string::npos);
+    stl::string echoed = resp.substr(body_start + 4);
     EXPECT_EQ(echoed, body);
 }
 
@@ -348,8 +348,8 @@ TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string body = "before\r\n\r\nafter";
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string body = "before\r\n\r\nafter";
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Content-Length: " +
         std::to_string(body.size()) +
@@ -361,12 +361,12 @@ TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
     server.stop();
     t.join();
 
-    ASSERT_TRUE(resp.find("200 OK") != std::string::npos);
+    ASSERT_TRUE(resp.find("200 OK") != stl::string::npos);
     // First \r\n\r\n is the header/body boundary. Body's embedded \r\n\r\n
     // would be a later occurrence — must use find, not rfind.
     auto body_start = resp.find("\r\n\r\n");
-    ASSERT_NE(body_start, std::string::npos);
-    std::string echoed = resp.substr(body_start + 4);
+    ASSERT_NE(body_start, stl::string::npos);
+    stl::string echoed = resp.substr(body_start + 4);
     EXPECT_EQ(echoed, body);
 }
 
@@ -380,15 +380,15 @@ TEST(ServerUrlDecodeTest, PercentEncodedSpaceInPathMatchesRoute) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /hello%20world HTTP/1.1\r\n"
+    stl::string req = "GET /hello%20world HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11040, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos) << resp;
-    EXPECT_TRUE(resp.find("hello world") != std::string::npos);
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != stl::string::npos) << resp;
+    EXPECT_TRUE(resp.find("hello world") != stl::string::npos);
 }
 
 TEST(ServerUrlDecodeTest, PercentEncodedSpecialCharsDecoded) {
@@ -401,15 +401,15 @@ TEST(ServerUrlDecodeTest, PercentEncodedSpecialCharsDecoded) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /users/john%40doe%3Aadmin HTTP/1.1\r\n"
+    stl::string req = "GET /users/john%40doe%3Aadmin HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11041, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos);
-    EXPECT_TRUE(resp.find("john@doe:admin") != std::string::npos);
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != stl::string::npos);
+    EXPECT_TRUE(resp.find("john@doe:admin") != stl::string::npos);
 }
 
 TEST(ServerUrlDecodeTest, PathTraversalDotDotRejected) {
@@ -422,7 +422,7 @@ TEST(ServerUrlDecodeTest, PathTraversalDotDotRejected) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /files/../secret HTTP/1.1\r\n"
+    stl::string req = "GET /files/../secret HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11042, req);
@@ -430,9 +430,9 @@ TEST(ServerUrlDecodeTest, PathTraversalDotDotRejected) {
     t.join();
 
     // Must send a 400 Bad Request — not 404, not hang, not 200
-    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != stl::string::npos)
         << "Expected 400 Bad Request, got: " << resp;
-    EXPECT_TRUE(resp.find("file contents") == std::string::npos);
+    EXPECT_TRUE(resp.find("file contents") == stl::string::npos);
 }
 
 TEST(ServerUrlDecodeTest, EncodedPathTraversalRejected) {
@@ -446,16 +446,16 @@ TEST(ServerUrlDecodeTest, EncodedPathTraversalRejected) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /files/%2e%2e/secret HTTP/1.1\r\n"
+    stl::string req = "GET /files/%2e%2e/secret HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11043, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != stl::string::npos)
         << "Expected 400, got: " << resp;
-    EXPECT_TRUE(resp.find("file contents") == std::string::npos);
+    EXPECT_TRUE(resp.find("file contents") == stl::string::npos);
 }
 
 TEST(ServerUrlDecodeTest, DotsInsideSegmentNotRejected) {
@@ -469,15 +469,15 @@ TEST(ServerUrlDecodeTest, DotsInsideSegmentNotRejected) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /files/file..txt HTTP/1.1\r\n"
+    stl::string req = "GET /files/file..txt HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11044, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos);
-    EXPECT_TRUE(resp.find("file..txt") != std::string::npos);
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != stl::string::npos);
+    EXPECT_TRUE(resp.find("file..txt") != stl::string::npos);
 }
 
 TEST(ServerUrlDecodeTest, MalformedPercentEscapeRejected) {
@@ -490,14 +490,14 @@ TEST(ServerUrlDecodeTest, MalformedPercentEscapeRejected) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /test%ZZ HTTP/1.1\r\n"
+    stl::string req = "GET /test%ZZ HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11045, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != stl::string::npos)
         << "Expected 400 for malformed %%-escape, got: " << resp;
 }
 
@@ -512,14 +512,14 @@ TEST(ServerUrlDecodeTest, TruncatedPercentEscapeRejected) {
     auto t = start_server(server);
 
     // Trailing bare '%' with no hex digits
-    std::string req = "GET /test% HTTP/1.1\r\n"
+    stl::string req = "GET /test% HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11046, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != stl::string::npos)
         << "Expected 400 for truncated %%-escape, got: " << resp;
 }
 
@@ -534,14 +534,14 @@ TEST(ServerUrlDecodeTest, EncodedSlashRejected) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /api%2Fsecret HTTP/1.1\r\n"
+    stl::string req = "GET /api%2Fsecret HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11047, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 400") != std::string::npos)
+    EXPECT_TRUE(resp.find("HTTP/1.1 400") != stl::string::npos)
         << "Expected 400 for %%2F in path, got: " << resp;
 }
 
@@ -556,15 +556,15 @@ TEST(ServerUrlDecodeTest, PlusInPathStaysLiteral) {
                  });
     auto t = start_server(server);
 
-    std::string req = "GET /a+b HTTP/1.1\r\n"
+    stl::string req = "GET /a+b HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11048, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("HTTP/1.1 200") != std::string::npos);
-    EXPECT_TRUE(resp.find("a+b") != std::string::npos);
+    EXPECT_TRUE(resp.find("HTTP/1.1 200") != stl::string::npos);
+    EXPECT_TRUE(resp.find("a+b") != stl::string::npos);
 }
 
 // ---- Tests for issue #10: segment-aware route prefix matching ----
@@ -577,15 +577,15 @@ TEST(ServerRouteTest, PrefixDoesNotMatchAcrossSegmentBoundary) {
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "api root"); });
     auto t = start_server(server);
 
-    std::string req = "GET /api-v2 HTTP/1.1\r\n"
+    stl::string req = "GET /api-v2 HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11030, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("404") != std::string::npos) << "Expected 404 for /api-v2, got: " << resp;
-    EXPECT_TRUE(resp.find("api root") == std::string::npos);
+    EXPECT_TRUE(resp.find("404") != stl::string::npos) << "Expected 404 for /api-v2, got: " << resp;
+    EXPECT_TRUE(resp.find("api root") == stl::string::npos);
 }
 
 TEST(ServerRouteTest, PrefixMatchAcrossSegmentBoundaryStillWorks) {
@@ -596,15 +596,15 @@ TEST(ServerRouteTest, PrefixMatchAcrossSegmentBoundaryStillWorks) {
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "api handler"); });
     auto t = start_server(server);
 
-    std::string req = "GET /api/users HTTP/1.1\r\n"
+    stl::string req = "GET /api/users HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11031, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("api handler") != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("api handler") != stl::string::npos);
 }
 
 TEST(ServerRouteTest, ExactMatchStillWorks) {
@@ -614,15 +614,15 @@ TEST(ServerRouteTest, ExactMatchStillWorks) {
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "exact"); });
     auto t = start_server(server);
 
-    std::string req = "GET /api HTTP/1.1\r\n"
+    stl::string req = "GET /api HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11032, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("exact") != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("exact") != stl::string::npos);
 }
 
 TEST(ServerRouteTest, NoFalseMatchOnSuffix) {
@@ -633,14 +633,14 @@ TEST(ServerRouteTest, NoFalseMatchOnSuffix) {
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "api"); });
     auto t = start_server(server);
 
-    std::string req = "GET /apifoo HTTP/1.1\r\n"
+    stl::string req = "GET /apifoo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11033, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("404") != std::string::npos);
+    EXPECT_TRUE(resp.find("404") != stl::string::npos);
 }
 
 TEST(ServerRouteTest, LongestPrefixStillWins) {
@@ -652,16 +652,16 @@ TEST(ServerRouteTest, LongestPrefixStillWins) {
     server.route("/api/users", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "long"); });
     auto t = start_server(server);
 
-    std::string req = "GET /api/users/42 HTTP/1.1\r\n"
+    stl::string req = "GET /api/users/42 HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11034, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("long") != std::string::npos);
-    EXPECT_TRUE(resp.find("short") == std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("long") != stl::string::npos);
+    EXPECT_TRUE(resp.find("short") == stl::string::npos);
 }
 
 TEST(ServerMethodTest, UnknownMethodReturns405) {
@@ -671,15 +671,15 @@ TEST(ServerMethodTest, UnknownMethodReturns405) {
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
-    std::string req = "FROBNICATE /test HTTP/1.1\r\n"
+    stl::string req = "FROBNICATE /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11010, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos) << "Expected 405 Method Not Allowed, got: " << resp;
-    EXPECT_TRUE(resp.find("200 OK") == std::string::npos);
+    EXPECT_TRUE(resp.find("405") != stl::string::npos) << "Expected 405 Method Not Allowed, got: " << resp;
+    EXPECT_TRUE(resp.find("200 OK") == stl::string::npos);
 }
 
 TEST(ServerMethodTest, ConnectMethodReturns405) {
@@ -690,14 +690,14 @@ TEST(ServerMethodTest, ConnectMethodReturns405) {
     auto t = start_server(server);
 
     // CONNECT is a real HTTP method but not supported by this server
-    std::string req = "CONNECT /test HTTP/1.1\r\n"
+    stl::string req = "CONNECT /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11011, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos) << "Expected 405, got: " << resp;
+    EXPECT_TRUE(resp.find("405") != stl::string::npos) << "Expected 405, got: " << resp;
 }
 
 TEST(ServerMethodTest, GarbageMethodReturns405) {
@@ -708,14 +708,14 @@ TEST(ServerMethodTest, GarbageMethodReturns405) {
     auto t = start_server(server);
 
     // Random garbage in the method position
-    std::string req = "@#$%! /test HTTP/1.1\r\n"
+    stl::string req = "@#$%! /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11012, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos) << "Expected 405, got: " << resp;
+    EXPECT_TRUE(resp.find("405") != stl::string::npos) << "Expected 405, got: " << resp;
 }
 
 TEST(ServerMethodTest, UnknownMethodBodyDoesNotSayNotFound) {
@@ -725,7 +725,7 @@ TEST(ServerMethodTest, UnknownMethodBodyDoesNotSayNotFound) {
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
-    std::string req = "FROBNICATE /test HTTP/1.1\r\n"
+    stl::string req = "FROBNICATE /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11015, req);
@@ -733,12 +733,12 @@ TEST(ServerMethodTest, UnknownMethodBodyDoesNotSayNotFound) {
     t.join();
 
     // Status should be 405
-    ASSERT_TRUE(resp.find("405") != std::string::npos);
+    ASSERT_TRUE(resp.find("405") != stl::string::npos);
     // Body should NOT be "Not Found" — that's confusing for a 405
     auto body_start = resp.find("\r\n\r\n");
-    ASSERT_NE(body_start, std::string::npos);
-    std::string body = resp.substr(body_start + 4);
-    EXPECT_TRUE(body.empty() || body.find("Not Found") == std::string::npos)
+    ASSERT_NE(body_start, stl::string::npos);
+    stl::string body = resp.substr(body_start + 4);
+    EXPECT_TRUE(body.empty() || body.find("Not Found") == stl::string::npos)
         << "405 response should not have 'Not Found' body, got: " << body;
 }
 
@@ -749,21 +749,21 @@ TEST(ServerMethodTest, UnknownMethodSkipsRouteHandlers) {
     cfg.port = 11016;
     sap::http::Server server(std::move(cfg));
 
-    std::atomic<int> handler_calls{0};
+    stl::atomic<int> handler_calls{0};
     server.route("/test", sap::http::EMethod::GET, [&handler_calls](const sap::http::Request&) {
         handler_calls.fetch_add(1);
         return sap::http::Response(sap::http::EStatusCode::OK, "OK");
     });
     auto t = start_server(server);
 
-    std::string req = "FROBNICATE /test HTTP/1.1\r\n"
+    stl::string req = "FROBNICATE /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11016, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos);
+    EXPECT_TRUE(resp.find("405") != stl::string::npos);
     EXPECT_EQ(handler_calls.load(), 0) << "Handler should not be invoked for unknown methods";
 }
 
@@ -774,15 +774,15 @@ TEST(ServerMethodTest, KnownMethodsStillWork) {
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
-    std::string req = "GET /test HTTP/1.1\r\n"
+    stl::string req = "GET /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11013, req);
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("405") == std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("405") == stl::string::npos);
 }
 
 TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
@@ -795,8 +795,8 @@ TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
 
     // Unknown method with a Content-Length and body — server should
     // reject with 405 quickly without trying to consume the body
-    std::string body = "some body data";
-    std::string req = "WEIRDO /test HTTP/1.1\r\n"
+    stl::string body = "some body data";
+    stl::string req = "WEIRDO /test HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Content-Length: " +
         std::to_string(body.size()) +
@@ -810,7 +810,7 @@ TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("405") != std::string::npos);
+    EXPECT_TRUE(resp.find("405") != stl::string::npos);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
     EXPECT_LE(ms, 1500) << "Server took too long — likely waiting on body";
 }
@@ -823,7 +823,7 @@ TEST(ServerTimeoutTest, NormalRequestStillWorksWithTimeout) {
     server.route("/hello", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "world"); });
     auto t = start_server(server);
 
-    std::string req = "GET /hello HTTP/1.1\r\n"
+    stl::string req = "GET /hello HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "\r\n";
     auto resp = raw_request(11009, req);
@@ -831,8 +831,8 @@ TEST(ServerTimeoutTest, NormalRequestStillWorksWithTimeout) {
     t.join();
 
     // Normal requests should still succeed even with timeouts enabled
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("world") != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("world") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestSimple) {
@@ -843,7 +843,7 @@ TEST(ServerRecvTest, ChunkedRequestSimple) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -853,8 +853,8 @@ TEST(ServerRecvTest, ChunkedRequestSimple) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("\r\n\r\nhello") != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nhello") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestMultipleChunks) {
@@ -865,7 +865,7 @@ TEST(ServerRecvTest, ChunkedRequestMultipleChunks) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -877,7 +877,7 @@ TEST(ServerRecvTest, ChunkedRequestMultipleChunks) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\nhello world") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nhello world") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestHexSize) {
@@ -888,8 +888,8 @@ TEST(ServerRecvTest, ChunkedRequestHexSize) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
 
-    std::string data(255, 'Z');
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string data(255, 'Z');
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -899,7 +899,7 @@ TEST(ServerRecvTest, ChunkedRequestHexSize) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\n255") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\n255") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestWithExtensions) {
@@ -910,7 +910,7 @@ TEST(ServerRecvTest, ChunkedRequestWithExtensions) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -920,7 +920,7 @@ TEST(ServerRecvTest, ChunkedRequestWithExtensions) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\nhello") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nhello") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestWithTrailers) {
@@ -931,7 +931,7 @@ TEST(ServerRecvTest, ChunkedRequestWithTrailers) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -943,7 +943,7 @@ TEST(ServerRecvTest, ChunkedRequestWithTrailers) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\nhello") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nhello") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestEmptyBody) {
@@ -954,7 +954,7 @@ TEST(ServerRecvTest, ChunkedRequestEmptyBody) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -963,7 +963,7 @@ TEST(ServerRecvTest, ChunkedRequestEmptyBody) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\n0") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\n0") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestBinaryData) {
@@ -977,14 +977,14 @@ TEST(ServerRecvTest, ChunkedRequestBinaryData) {
     });
     auto t = start_server(server);
 
-    std::string data;
+    stl::string data;
     data.push_back('\x00');
     data.push_back('\xff');
     data.push_back('\r');
     data.push_back('\n');
     data.push_back('\x7f');
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -994,7 +994,7 @@ TEST(ServerRecvTest, ChunkedRequestBinaryData) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("x-body-size: 5") != std::string::npos);
+    EXPECT_TRUE(resp.find("x-body-size: 5") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestInvalidHexSize) {
@@ -1005,7 +1005,7 @@ TEST(ServerRecvTest, ChunkedRequestInvalidHexSize) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -1015,7 +1015,7 @@ TEST(ServerRecvTest, ChunkedRequestInvalidHexSize) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("400") != std::string::npos);
+    EXPECT_TRUE(resp.find("400") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
@@ -1028,8 +1028,8 @@ TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
-    std::string data(200, 'A');
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string data(200, 'A');
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -1040,7 +1040,7 @@ TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
     t.join();
     sap::http::Server::max_body_size = saved;
 
-    EXPECT_TRUE(resp.find("400") != std::string::npos);
+    EXPECT_TRUE(resp.find("400") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestSpanningManyChunks) {
@@ -1051,7 +1051,7 @@ TEST(ServerRecvTest, ChunkedRequestSpanningManyChunks) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
 
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n";
@@ -1063,7 +1063,7 @@ TEST(ServerRecvTest, ChunkedRequestSpanningManyChunks) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\n100") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\n100") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, GracefulShutdownWaitsForInFlightHandler) {
@@ -1072,7 +1072,7 @@ TEST(ServerRecvTest, GracefulShutdownWaitsForInFlightHandler) {
     cfg.is_multithreaded = true;
     sap::http::Server server(std::move(cfg));
 
-    std::atomic<bool> handler_finished{false};
+    stl::atomic<bool> handler_finished{false};
     server.route("/slow", sap::http::EMethod::GET, [&](const sap::http::Request&) {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         handler_finished = true;
@@ -1080,11 +1080,11 @@ TEST(ServerRecvTest, GracefulShutdownWaitsForInFlightHandler) {
     });
     auto t = start_server(server);
 
-    std::thread client([&]() {
-        std::string req = "GET /slow HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    stl::thread client([&]() {
+        stl::string req = "GET /slow HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         auto resp = raw_request(11300, req);
-        EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-        EXPECT_TRUE(resp.find("done") != std::string::npos);
+        EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+        EXPECT_TRUE(resp.find("done") != stl::string::npos);
     });
 
     // Give the client time to actually be inside the handler
@@ -1118,7 +1118,7 @@ TEST(ServerRecvTest, MiddlewarePassThrough) {
     sap::http::ServerConfig cfg;
     cfg.port = 11500;
     sap::http::Server server(std::move(cfg));
-    std::atomic<int> mw_calls{0};
+    stl::atomic<int> mw_calls{0};
     server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
         ++mw_calls;
         return std::nullopt;
@@ -1132,14 +1132,14 @@ TEST(ServerRecvTest, MiddlewarePassThrough) {
     t.join();
 
     EXPECT_EQ(mw_calls.load(), 1);
-    EXPECT_TRUE(resp.find("\r\n\r\nok") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nok") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, MiddlewareShortCircuit) {
     sap::http::ServerConfig cfg;
     cfg.port = 11501;
     sap::http::Server server(std::move(cfg));
-    std::atomic<bool> handler_called{false};
+    stl::atomic<bool> handler_called{false};
     server.use([](sap::http::Request& req) -> std::optional<sap::http::Response> {
         if (req.headers.get("Authorization").empty())
             return sap::http::Response(sap::http::EStatusCode::Unauthorized, "no auth");
@@ -1156,16 +1156,16 @@ TEST(ServerRecvTest, MiddlewareShortCircuit) {
     t.join();
 
     EXPECT_FALSE(handler_called.load());
-    EXPECT_TRUE(resp.find("401") != std::string::npos);
-    EXPECT_TRUE(resp.find("\r\n\r\nno auth") != std::string::npos);
+    EXPECT_TRUE(resp.find("401") != stl::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nno auth") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, MiddlewareChainOrderAndShortCircuit) {
     sap::http::ServerConfig cfg;
     cfg.port = 11502;
     sap::http::Server server(std::move(cfg));
-    std::vector<int> order;
-    std::mutex order_mu;
+    stl::vector<int> order;
+    stl::mutex order_mu;
     server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
         std::lock_guard l(order_mu);
         order.push_back(1);
@@ -1192,7 +1192,7 @@ TEST(ServerRecvTest, MiddlewareChainOrderAndShortCircuit) {
     EXPECT_EQ(order.size(), 2u);
     EXPECT_EQ(order[0], 1);
     EXPECT_EQ(order[1], 2);
-    EXPECT_TRUE(resp.find("403") != std::string::npos);
+    EXPECT_TRUE(resp.find("403") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, MiddlewareCanMutateRequest) {
@@ -1212,7 +1212,7 @@ TEST(ServerRecvTest, MiddlewareCanMutateRequest) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\nalice") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nalice") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, MiddlewareExceptionBecomes500) {
@@ -1230,15 +1230,15 @@ TEST(ServerRecvTest, MiddlewareExceptionBecomes500) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("500") != std::string::npos);
-    EXPECT_TRUE(resp.find("boom") != std::string::npos);
+    EXPECT_TRUE(resp.find("500") != stl::string::npos);
+    EXPECT_TRUE(resp.find("boom") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, MiddlewareDoesNotRunOnParseFailure) {
     sap::http::ServerConfig cfg;
     cfg.port = 11505;
     sap::http::Server server(std::move(cfg));
-    std::atomic<int> mw_calls{0};
+    stl::atomic<int> mw_calls{0};
     server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
         ++mw_calls;
         return std::nullopt;
@@ -1250,7 +1250,7 @@ TEST(ServerRecvTest, MiddlewareDoesNotRunOnParseFailure) {
     t.join();
 
     EXPECT_EQ(mw_calls.load(), 0);
-    EXPECT_TRUE(resp.find("400") != std::string::npos);
+    EXPECT_TRUE(resp.find("400") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamSingleCaptured) {
@@ -1266,7 +1266,7 @@ TEST(ServerRecvTest, RouteParamSingleCaptured) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\n123") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\n123") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamMultipleCaptured) {
@@ -1284,7 +1284,7 @@ TEST(ServerRecvTest, RouteParamMultipleCaptured) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\n42/7") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\n42/7") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamSegmentCountMismatch) {
@@ -1302,8 +1302,8 @@ TEST(ServerRecvTest, RouteParamSegmentCountMismatch) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp1.find("404") != std::string::npos);
-    EXPECT_TRUE(resp2.find("404") != std::string::npos);
+    EXPECT_TRUE(resp1.find("404") != stl::string::npos);
+    EXPECT_TRUE(resp2.find("404") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamLiteralBeatsParam) {
@@ -1321,8 +1321,8 @@ TEST(ServerRecvTest, RouteParamLiteralBeatsParam) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp_me.find("\r\n\r\nliteral") != std::string::npos);
-    EXPECT_TRUE(resp_id.find("\r\n\r\nparam") != std::string::npos);
+    EXPECT_TRUE(resp_me.find("\r\n\r\nliteral") != stl::string::npos);
+    EXPECT_TRUE(resp_id.find("\r\n\r\nparam") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamLiteralBeatsParamRegardlessOfRegistrationOrder) {
@@ -1340,7 +1340,7 @@ TEST(ServerRecvTest, RouteParamLiteralBeatsParamRegardlessOfRegistrationOrder) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp_me.find("\r\n\r\nliteral") != std::string::npos);
+    EXPECT_TRUE(resp_me.find("\r\n\r\nliteral") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamWithDifferentMethods) {
@@ -1358,8 +1358,8 @@ TEST(ServerRecvTest, RouteParamWithDifferentMethods) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp_get.find("\r\n\r\nGET 5") != std::string::npos);
-    EXPECT_TRUE(resp_del.find("\r\n\r\nDEL 5") != std::string::npos);
+    EXPECT_TRUE(resp_get.find("\r\n\r\nGET 5") != stl::string::npos);
+    EXPECT_TRUE(resp_del.find("\r\n\r\nDEL 5") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamCapturesPercentDecodedValue) {
@@ -1374,7 +1374,7 @@ TEST(ServerRecvTest, RouteParamCapturesPercentDecodedValue) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\nhello world") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\nhello world") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RouteParamEmptyParamsForStaticRoute) {
@@ -1390,7 +1390,7 @@ TEST(ServerRecvTest, RouteParamEmptyParamsForStaticRoute) {
     server.stop();
     t.join();
 
-    EXPECT_TRUE(resp.find("\r\n\r\n0") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\n0") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, RunAsyncDoesNotBlock) {
@@ -1406,8 +1406,8 @@ TEST(ServerRecvTest, RunAsyncDoesNotBlock) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     auto resp = raw_request(11310, "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
-    EXPECT_TRUE(resp.find("200 OK") != std::string::npos);
-    EXPECT_TRUE(resp.find("hi") != std::string::npos);
+    EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
+    EXPECT_TRUE(resp.find("hi") != stl::string::npos);
 
     server.stop();
 }
@@ -1445,8 +1445,8 @@ TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
 
-    std::string data(16384, 'B');
-    std::string req = "POST /echo HTTP/1.1\r\n"
+    stl::string data(16384, 'B');
+    stl::string req = "POST /echo HTTP/1.1\r\n"
                       "Host: 127.0.0.1\r\n"
                       "Transfer-Encoding: chunked\r\n"
                       "\r\n"
@@ -1457,5 +1457,5 @@ TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
     t.join();
     sap::http::Server::max_body_size = saved;
 
-    EXPECT_TRUE(resp.find("\r\n\r\n16384") != std::string::npos);
+    EXPECT_TRUE(resp.find("\r\n\r\n16384") != stl::string::npos);
 }

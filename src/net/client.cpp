@@ -18,9 +18,9 @@ namespace sap::http {
     };
 
     struct Client::Impl {
-        std::mutex mu;
+        stl::mutex mu;
         // Multimap-style: multiple idle conns can exist per endpoint.
-        std::unordered_multimap<std::string, PooledConn> pool;
+        std::unordered_multimap<stl::string, PooledConn> pool;
     };
 
     Client::Client() : m_Impl(stl::make_unique<Impl>()) {}
@@ -32,12 +32,12 @@ namespace sap::http {
     }
 
     void Client::clear_pool() {
-        std::lock_guard<std::mutex> lk(m_Impl->mu);
+        std::lock_guard<stl::mutex> lk(m_Impl->mu);
         m_Impl->pool.clear();
     }
 
-    static std::string endpoint_key(const URL& u) {
-        return u.host + ":" + std::string(u.port);
+    static stl::string endpoint_key(const URL& u) {
+        return u.host + ":" + stl::string(u.port);
     }
 
     static stl::unique_ptr<sap::network::TCPSocket> dial(const URL& u) {
@@ -63,8 +63,8 @@ namespace sap::http {
     // Stale entries (past idle_timeout) are evicted lazily here. Returns nullptr if
     // no usable pooled conn is available — caller should dial a fresh one.
     static stl::unique_ptr<sap::network::TCPSocket>
-    checkout(Client::Impl& impl, const std::string& key) {
-        std::lock_guard<std::mutex> lk(impl.mu);
+    checkout(Client::Impl& impl, const stl::string& key) {
+        std::lock_guard<stl::mutex> lk(impl.mu);
         auto now = Clock::now();
         auto range = impl.pool.equal_range(key);
         for (auto it = range.first; it != range.second;) {
@@ -80,10 +80,10 @@ namespace sap::http {
     }
 
     static void
-    checkin(Client::Impl& impl, const std::string& key, stl::unique_ptr<sap::network::TCPSocket> sock) {
+    checkin(Client::Impl& impl, const stl::string& key, stl::unique_ptr<sap::network::TCPSocket> sock) {
         if (Client::idle_timeout.count() <= 0 || !sock || !sock->valid())
             return;
-        std::lock_guard<std::mutex> lk(impl.mu);
+        std::lock_guard<stl::mutex> lk(impl.mu);
         impl.pool.insert({key, PooledConn{std::move(sock), Clock::now()}});
     }
 

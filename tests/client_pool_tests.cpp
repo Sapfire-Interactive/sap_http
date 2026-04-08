@@ -34,7 +34,7 @@ namespace {
             // with the client's reuse attempt.
             bool close_after_first_response = false;
             // Optional body for responses.
-            std::string body = "ok";
+            stl::string body = "ok";
         };
 
         explicit KeepAliveListener(Options o) : m_Opts(std::move(o)) {
@@ -51,7 +51,7 @@ namespace {
                 return;
             }
             m_Ready = true;
-            m_Thread = std::thread([this] { run(); });
+            m_Thread = stl::thread([this] { run(); });
         }
 
         ~KeepAliveListener() {
@@ -78,29 +78,29 @@ namespace {
         // Very small HTTP/1.1 request parser: reads until "\r\n\r\n", then pulls
         // Content-Length bytes if present. Returns false on error/close.
         bool read_one_request(sap::network::ISocket& sock) {
-            std::string buf;
-            std::byte chunk[1024];
-            while (buf.find("\r\n\r\n") == std::string::npos) {
-                auto n = sock.recv(stl::span<std::byte>(chunk, sizeof(chunk)));
+            stl::string buf;
+            stl::byte chunk[1024];
+            while (buf.find("\r\n\r\n") == stl::string::npos) {
+                auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
                 if (n == 0) return false;
                 buf.append(reinterpret_cast<const char*>(chunk), n);
                 if (buf.size() > 64 * 1024) return false;
             }
             auto header_end = buf.find("\r\n\r\n");
-            std::string headers = buf.substr(0, header_end);
+            stl::string headers = buf.substr(0, header_end);
             // Find Content-Length (case-insensitive enough for our client)
             std::size_t content_length = 0;
-            std::string lower = headers;
+            stl::string lower = headers;
             for (auto& c : lower) c = static_cast<char>(std::tolower(c));
             auto pos = lower.find("content-length:");
-            if (pos != std::string::npos) {
+            if (pos != stl::string::npos) {
                 auto eol = lower.find("\r\n", pos);
                 auto val = headers.substr(pos + 15, eol - (pos + 15));
                 content_length = std::stoull(val);
             }
             std::size_t already = buf.size() - (header_end + 4);
             while (already < content_length) {
-                auto n = sock.recv(stl::span<std::byte>(chunk, sizeof(chunk)));
+                auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
                 if (n == 0) return false;
                 already += n;
             }
@@ -108,7 +108,7 @@ namespace {
         }
 
         void write_response(sap::network::ISocket& sock, bool close_hdr) {
-            std::string resp = "HTTP/1.1 200 OK\r\n";
+            stl::string resp = "HTTP/1.1 200 OK\r\n";
             resp += "Content-Length: " + std::to_string(m_Opts.body.size()) + "\r\n";
             resp += "Connection: ";
             resp += close_hdr ? "close" : "keep-alive";
@@ -116,8 +116,8 @@ namespace {
             resp += m_Opts.body;
             std::size_t sent = 0;
             while (sent < resp.size()) {
-                auto n = sock.send(stl::span<const std::byte>(
-                    reinterpret_cast<const std::byte*>(resp.data() + sent), resp.size() - sent));
+                auto n = sock.send(stl::span<const stl::byte>(
+                    reinterpret_cast<const stl::byte*>(resp.data() + sent), resp.size() - sent));
                 if (n == 0) return;
                 sent += n;
             }
@@ -135,11 +135,11 @@ namespace {
         }
 
         Options m_Opts;
-        std::unique_ptr<sap::network::TCPSocket> m_Server;
-        std::thread m_Thread;
-        std::atomic<bool> m_Stop{false};
-        std::atomic<int> m_AcceptCount{0};
-        std::atomic<int> m_RequestCount{0};
+        stl::unique_ptr<sap::network::TCPSocket> m_Server;
+        stl::thread m_Thread;
+        stl::atomic<bool> m_Stop{false};
+        stl::atomic<int> m_AcceptCount{0};
+        stl::atomic<int> m_RequestCount{0};
         bool m_Ready{false};
     };
 
@@ -224,7 +224,7 @@ TEST(ClientPoolTest, RetriesOnStalePooledConnection) {
 TEST(ClientPoolTest, EndToEndServerHonorsKeepAlive) {
     sap::http::ServerConfig cfg{"127.0.0.1", 11099};
     sap::http::Server server{std::move(cfg)};
-    std::atomic<int> hits{0};
+    stl::atomic<int> hits{0};
     server.route("/", sap::http::EMethod::GET,
                  [&](const sap::http::Request&) {
                      ++hits;

@@ -147,8 +147,8 @@ namespace sap::http {
         stl::unique_ptr<Impl> m_Impl;
     };
 
-    using RouteHandler = std::function<Response(const Request&)>;
-    using Middleware = std::function<std::optional<Response>(Request&)>;
+    using RouteHandler = stl::function<Response(const Request&)>;
+    using Middleware = stl::function<std::optional<Response>(Request&)>;
 
     struct RouteSegment {
         stl::string text;  // literal text or param name (without ':')
@@ -229,18 +229,18 @@ namespace sap::http {
         stl::unique_ptr<sap::network::TCPSocket> m_ServerSocket;
         stl::vector<Route> m_Routes;
         stl::vector<Middleware> m_Middleware;
-        std::atomic<bool> m_IsRunning{false};
+        stl::atomic<bool> m_IsRunning{false};
         sap::job_system m_JobSystem;
-        std::thread m_RunThread;
+        stl::thread m_RunThread;
 
         // Tracks in-flight client sockets so stop() can close those parked in
         // read_header() waiting for the next keep-alive request. Sockets currently
         // executing a handler are left alone so graceful shutdown lets them finish.
         struct ClientEntry {
             sap::network::ISocket* sock;
-            std::atomic<bool>* idle; // true while parked in read_header
+            stl::atomic<bool>* idle; // true while parked in read_header
         };
-        std::mutex m_ClientsMutex;
+        stl::mutex m_ClientsMutex;
         stl::vector<ClientEntry> m_ActiveClients;
     };
 

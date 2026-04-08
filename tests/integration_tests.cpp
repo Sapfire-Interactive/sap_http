@@ -53,7 +53,7 @@ TEST(IntegrationTest, ServerClientIntegration) {
                  [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "Integration test response"); });
     auto start_result = server.start();
     ASSERT_TRUE(start_result.has_value()) << "Server failed to start: " << start_result.error();
-    std::thread server_thread([&server]() { server.run(); });
+    stl::thread server_thread([&server]() { server.run(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     auto future = sap::http::Client::get("http://127.0.0.1:9999/test");
     auto result = future.get();
@@ -74,7 +74,7 @@ TEST(IntegrationTest, ServerPostRequest) {
     });
     auto start_result = server.start();
     ASSERT_TRUE(start_result.has_value()) << "Server failed to start: " << start_result.error();
-    std::thread server_thread([&server]() { server.run(); });
+    stl::thread server_thread([&server]() { server.run(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     auto future = sap::http::Client::post("http://127.0.0.1:10000/api/echo", R"({"test": "data"})");
     auto result = future.get();

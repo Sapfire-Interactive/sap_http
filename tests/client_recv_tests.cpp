@@ -13,11 +13,11 @@
 // accepts one connection, drains the request headers, then sends the canned
 // `response` bytes and closes. Runs in a background thread.
 struct FakeServer {
-    std::unique_ptr<sap::network::TCPSocket> listener;
-    std::thread thread;
-    std::atomic<bool> done{false};
+    stl::unique_ptr<sap::network::TCPSocket> listener;
+    stl::thread thread;
+    stl::atomic<bool> done{false};
 
-    FakeServer(u16 port, std::string response) {
+    FakeServer(u16 port, stl::string response) {
         sap::network::SocketConfig sc;
         sc.host = "127.0.0.1";
         sc.port = port;
@@ -29,20 +29,20 @@ struct FakeServer {
         if (!listener->valid() || !listener->bind() || !listener->listen())
             return;
 
-        thread = std::thread([this, response = std::move(response)]() {
+        thread = stl::thread([this, response = std::move(response)]() {
             auto client = listener->accept();
             if (!client) return;
             // Drain the request headers (best-effort).
-            std::byte buf[4096];
-            std::string acc;
+            stl::byte buf[4096];
+            stl::string acc;
             while (true) {
-                auto n = client->recv(stl::span<std::byte>(buf, sizeof(buf)));
+                auto n = client->recv(stl::span<stl::byte>(buf, sizeof(buf)));
                 if (n == 0) break;
                 acc.append(reinterpret_cast<const char*>(buf), n);
-                if (acc.find("\r\n\r\n") != std::string::npos) break;
+                if (acc.find("\r\n\r\n") != stl::string::npos) break;
             }
-            client->send(stl::span<const std::byte>(
-                reinterpret_cast<const std::byte*>(response.data()), response.size()));
+            client->send(stl::span<const stl::byte>(
+                reinterpret_cast<const stl::byte*>(response.data()), response.size()));
             // Close immediately so client's read loop exits
             client->close();
             done = true;
@@ -58,7 +58,7 @@ struct FakeServer {
 };
 
 TEST(ClientRecvTest, MalformedContentLengthDoesNotCrash) {
-    std::string bad_response =
+    stl::string bad_response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: not-a-number\r\n"
         "\r\n"
@@ -78,7 +78,7 @@ TEST(ClientRecvTest, MalformedContentLengthDoesNotCrash) {
 }
 
 TEST(ClientRecvTest, OverflowContentLengthDoesNotCrash) {
-    std::string bad_response =
+    stl::string bad_response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: 99999999999999999999999\r\n"
         "\r\n";
@@ -91,7 +91,7 @@ TEST(ClientRecvTest, OverflowContentLengthDoesNotCrash) {
 }
 
 TEST(ClientRecvTest, NegativeContentLengthDoesNotCrash) {
-    std::string bad_response =
+    stl::string bad_response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: -1\r\n"
         "\r\n";
@@ -109,7 +109,7 @@ TEST(ClientRecvTest, ContentLengthExceedingCapIsRejected) {
     auto saved = sap::http::Client::max_response_size;
     sap::http::Client::max_response_size = 1024; // 1KB cap
 
-    std::string bad_response =
+    stl::string bad_response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: 999999999\r\n"
         "\r\n";
@@ -121,7 +121,7 @@ TEST(ClientRecvTest, ContentLengthExceedingCapIsRejected) {
     sap::http::Client::max_response_size = saved;
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("max_response_size") != std::string::npos)
+    EXPECT_TRUE(result.error().find("max_response_size") != stl::string::npos)
         << "Got: " << result.error();
 }
 
@@ -133,8 +133,8 @@ TEST(ClientRecvTest, AccumulatedBytesExceedingCapIsRejected) {
 
     // 4KB body, no Content-Length header — client reads until EOF but should
     // bail once it exceeds the cap
-    std::string big_body(4096, 'X');
-    std::string bad_response =
+    stl::string big_body(4096, 'X');
+    stl::string bad_response =
         "HTTP/1.1 200 OK\r\n"
         "\r\n" + big_body;
     FakeServer fake(12006, std::move(bad_response));
@@ -145,7 +145,7 @@ TEST(ClientRecvTest, AccumulatedBytesExceedingCapIsRejected) {
     sap::http::Client::max_response_size = saved;
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("max_response_size") != std::string::npos)
+    EXPECT_TRUE(result.error().find("max_response_size") != stl::string::npos)
         << "Got: " << result.error();
 }
 
@@ -154,8 +154,8 @@ TEST(ClientRecvTest, ResponseWithinCapSucceeds) {
     auto saved = sap::http::Client::max_response_size;
     sap::http::Client::max_response_size = 10 * 1024;
 
-    std::string body = "hello world";
-    std::string response =
+    stl::string body = "hello world";
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: " + std::to_string(body.size()) + "\r\n"
         "\r\n" + body;
@@ -172,7 +172,7 @@ TEST(ClientRecvTest, ResponseWithinCapSucceeds) {
 }
 
 TEST(ClientRecvTest, EmptyContentLengthDoesNotCrash) {
-    std::string bad_response =
+    stl::string bad_response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: \r\n"
         "\r\n";
@@ -185,7 +185,7 @@ TEST(ClientRecvTest, EmptyContentLengthDoesNotCrash) {
 }
 
 TEST(ClientRecvTest, ChunkedSimpleSingleChunk) {
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -200,7 +200,7 @@ TEST(ClientRecvTest, ChunkedSimpleSingleChunk) {
 }
 
 TEST(ClientRecvTest, ChunkedMultipleChunks) {
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -218,8 +218,8 @@ TEST(ClientRecvTest, ChunkedMultipleChunks) {
 
 TEST(ClientRecvTest, ChunkedHexSize) {
     // 1a hex = 26 bytes
-    std::string data(26, 'X');
-    std::string response =
+    stl::string data(26, 'X');
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -235,8 +235,8 @@ TEST(ClientRecvTest, ChunkedHexSize) {
 }
 
 TEST(ClientRecvTest, ChunkedUppercaseHexSize) {
-    std::string data(255, 'Y');
-    std::string response =
+    stl::string data(255, 'Y');
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -252,7 +252,7 @@ TEST(ClientRecvTest, ChunkedUppercaseHexSize) {
 
 TEST(ClientRecvTest, ChunkedWithExtensions) {
     // Chunk extensions after `;` must be ignored
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -267,7 +267,7 @@ TEST(ClientRecvTest, ChunkedWithExtensions) {
 }
 
 TEST(ClientRecvTest, ChunkedWithTrailers) {
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -285,7 +285,7 @@ TEST(ClientRecvTest, ChunkedWithTrailers) {
 }
 
 TEST(ClientRecvTest, ChunkedEmptyBody) {
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -299,13 +299,13 @@ TEST(ClientRecvTest, ChunkedEmptyBody) {
 }
 
 TEST(ClientRecvTest, ChunkedBinaryData) {
-    std::string data;
+    stl::string data;
     data.push_back('\x00');
     data.push_back('\xff');
     data.push_back('\r');
     data.push_back('\n');
     data.push_back('\x7f');
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -321,7 +321,7 @@ TEST(ClientRecvTest, ChunkedBinaryData) {
 }
 
 TEST(ClientRecvTest, ChunkedInvalidHexSize) {
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -335,7 +335,7 @@ TEST(ClientRecvTest, ChunkedInvalidHexSize) {
 }
 
 TEST(ClientRecvTest, ChunkedMissingCRLFAfterChunk) {
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -350,7 +350,7 @@ TEST(ClientRecvTest, ChunkedMissingCRLFAfterChunk) {
 
 TEST(ClientRecvTest, ChunkedTruncatedBeforeTerminator) {
     // Server closes connection mid-chunk
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -364,7 +364,7 @@ TEST(ClientRecvTest, ChunkedTruncatedBeforeTerminator) {
 
 TEST(ClientRecvTest, ChunkedTruncatedBeforeFinalZero) {
     // Body chunk completes but connection drops before terminator
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -380,8 +380,8 @@ TEST(ClientRecvTest, ChunkedExceedsMaxResponseSize) {
     auto saved = sap::http::Client::max_response_size;
     sap::http::Client::max_response_size = 100;
 
-    std::string data(200, 'A');
-    std::string response =
+    stl::string data(200, 'A');
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
@@ -396,11 +396,11 @@ TEST(ClientRecvTest, ChunkedExceedsMaxResponseSize) {
 }
 
 TEST(ClientRecvTest, ChunkedManySmallChunks) {
-    std::string response =
+    stl::string response =
         "HTTP/1.1 200 OK\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n";
-    std::string expected;
+    stl::string expected;
     for (int i = 0; i < 50; ++i) {
         response += "1\r\nA\r\n";
         expected += "A";

@@ -2,7 +2,6 @@
 #include "sap_http/net/http.h"
 
 #include <algorithm>
-#include <mutex>
 
 #include <sap_network/tcp_socket.h>
 
@@ -175,9 +174,9 @@ namespace sap::http {
         // `idle` is true while we're parked in read_header() waiting for the next
         // request on a keep-alive connection. Server::stop() closes only sockets
         // whose entries are currently flagged idle, letting in-handler work finish.
-        std::atomic<bool> idle{false};
+        stl::atomic<bool> idle{false};
         {
-            std::lock_guard<std::mutex> lk(m_ClientsMutex);
+            std::lock_guard<stl::mutex> lk(m_ClientsMutex);
             m_ActiveClients.push_back({&sock, &idle});
         }
         // RAII deregister: runs even on early break / exception.
@@ -185,7 +184,7 @@ namespace sap::http {
             Server* self;
             sap::network::ISocket* s;
             ~Deregister() {
-                std::lock_guard<std::mutex> lk(self->m_ClientsMutex);
+                std::lock_guard<stl::mutex> lk(self->m_ClientsMutex);
                 auto& v = self->m_ActiveClients;
                 v.erase(std::remove_if(v.begin(), v.end(),
                                        [s = s](const ClientEntry& e) { return e.sock == s; }),
@@ -436,7 +435,7 @@ namespace sap::http {
     }
 
     void Server::run_async() {
-        m_RunThread = std::thread([this]() { run(); });
+        m_RunThread = stl::thread([this]() { run(); });
     }
 
     void Server::stop() {
@@ -452,7 +451,7 @@ namespace sap::http {
         // Sockets currently inside a route handler are left alone so the handler can
         // finish and write its response — that's the graceful-shutdown contract.
         {
-            std::lock_guard<std::mutex> lk(m_ClientsMutex);
+            std::lock_guard<stl::mutex> lk(m_ClientsMutex);
             for (const auto& e : m_ActiveClients) {
                 if (e.idle->load(std::memory_order_acquire))
                     e.sock->close();
