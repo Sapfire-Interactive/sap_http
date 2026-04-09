@@ -1,6 +1,6 @@
 [submodule "sap_core"]
 	path = sap_core
-	url = https://github.com/nobu-x3/sap_core.git
+	url = git@github.com:nobu-x3/sap_core.git
 [submodule "sap_network"]
 	path = sap_network
-	url = https://github.com/nobu-x3/sap_network.git
+	url = git@github.com:nobu-x3/sap_network.git
