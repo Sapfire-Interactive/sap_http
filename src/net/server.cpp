@@ -267,24 +267,7 @@ namespace sap::http {
             }
             if (req_result) {
                 auto& req = req_result.value();
-                bool short_circuited = false;
-                for (const auto& mw : m_Middleware) {
-                    try {
-                        auto mw_resp = mw(req);
-                        if (mw_resp) {
-                            resp = std::move(*mw_resp);
-                            short_circuited = true;
-                            break;
-                        }
-                    } catch (const std::exception& e) {
-                        resp = Response(EStatusCode::InternalServerError, stl::string("Middleware error: ") + e.what());
-                        short_circuited = true;
-                        break;
-                    }
-                }
-                if (short_circuited) {
-                    // skip routing
-                } else if (req.method == EMethod::UNKNOWN) {
+                if (req.method == EMethod::UNKNOWN) {
                     resp.status_code = EStatusCode::MethodNotAllowed;
                     resp.body = "";
                 } else {
@@ -353,9 +336,36 @@ namespace sap::http {
                             }
                         }
                     }
+
+                    // Run middleware unless the matched route opts out. Middleware also
+                    // runs for unmatched paths so cross-cutting concerns (CORS preflight,
+                    // logging) still see them — a matched public_route is the only case
+                    // where middleware is bypassed.
+                    bool skip_mw = best_match && best_match->skip_middleware;
                     if (best_match) {
                         for (auto& [k, v] : best_params)
                             req.params[k] = std::move(v);
+                    }
+                    bool short_circuited = false;
+                    if (!skip_mw) {
+                        for (const auto& mw : m_Middleware) {
+                            try {
+                                auto mw_resp = mw(req);
+                                if (mw_resp) {
+                                    resp = std::move(*mw_resp);
+                                    short_circuited = true;
+                                    break;
+                                }
+                            } catch (const std::exception& e) {
+                                resp = Response(EStatusCode::InternalServerError,
+                                                stl::string("Middleware error: ") + e.what());
+                                short_circuited = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!short_circuited && best_match) {
                         try {
                             resp = best_match->handler(req);
                         } catch (const std::exception& e) {

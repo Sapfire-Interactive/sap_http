@@ -162,6 +162,9 @@ namespace sap::http {
         bool is_regex{false};
         stl::vector<RouteSegment> segments;
         bool has_params{false};
+        // When true, middleware registered via Server::use() is skipped for this route.
+        // Use for endpoints that must run without auth/CORS/etc. gating (e.g. login).
+        bool skip_middleware{false};
     };
 
     struct ServerConfig {
@@ -191,10 +194,27 @@ namespace sap::http {
 
         template <typename Handler>
         void route(stl::string_view path, EMethod method, Handler&& handler) {
+            add_route(path, method, std::forward<Handler>(handler), /*skip_middleware=*/false);
+        }
+
+        // Registers a route that bypasses all middleware. Use for endpoints that must
+        // run without auth/CORS/etc. (e.g. /auth/login). Matching semantics are
+        // identical to route().
+        template <typename Handler>
+        void public_route(stl::string_view path, EMethod method, Handler&& handler) {
+            add_route(path, method, std::forward<Handler>(handler), /*skip_middleware=*/true);
+        }
+
+    private:
+        void handle_client(stl::unique_ptr<sap::network::ISocket> client_socket);
+
+        template <typename Handler>
+        void add_route(stl::string_view path, EMethod method, Handler&& handler, bool skip_middleware) {
             Route r;
             r.path = path;
             r.method = method;
             r.handler = std::forward<Handler>(handler);
+            r.skip_middleware = skip_middleware;
             // Pre-split path into segments and detect param segments (":name")
             stl::string p(path);
             size_t start = 0;
@@ -220,9 +240,6 @@ namespace sap::http {
             }
             m_Routes.push_back(std::move(r));
         }
-
-    private:
-        void handle_client(stl::unique_ptr<sap::network::ISocket> client_socket);
 
     private:
         ServerConfig m_Config;
