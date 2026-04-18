@@ -327,7 +327,8 @@ namespace sap::http {
                             } else if (req.url.path.size() > route.path.size() &&
                                        req.url.path.substr(0, route.path.size()) == route.path &&
                                        req.url.path[route.path.size()] == '/') {
-                                int score = static_cast<int>(route.segments.size());
+                                // Prefix match scores below any exact match (parameterized or static).
+                                int score = -1 + static_cast<int>(route.segments.size());
                                 if (score > best_score) {
                                     best_score = score;
                                     best_match = &route;
