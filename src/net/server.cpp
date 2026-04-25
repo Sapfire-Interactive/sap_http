@@ -20,7 +20,7 @@ namespace sap::http {
     // buffer (headers plus any already-read body bytes); `carry` is cleared. Callers
     // thread `carry` across requests so keep-alive connections preserve pipelined bytes
     // that arrived after the current request's headers.
-    static stl::result<stl::string> read_header(sap::network::ISocket& sock, stl::size_t max_header_size,
+    static stl::result<stl::string> read_header(sap::network::TCPSocket& sock, stl::size_t max_header_size,
                                                 stl::string& carry) {
         stl::byte chunk[4096];
         while (true) {
@@ -35,16 +35,16 @@ namespace sap::http {
             if (carry.size() > max_header_size)
                 return stl::make_error<stl::string>("Headers exceeded max size");
             auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
-            if (n == 0)
+            if (!n || n.value() == 0)
                 return stl::make_error<stl::string>("Connection closed during header read");
-            carry.append(reinterpret_cast<const char*>(chunk), n);
+            carry.append(reinterpret_cast<const char*>(chunk), n.value());
         }
     }
 
     // Reads exactly `content_length` body bytes. `raw` is the header-phase buffer
     // (headers + already-read body prefix). Any bytes past content_length are moved
     // into `carry` for the next pipelined request on the same connection.
-    static stl::result<stl::string> read_body(sap::network::ISocket& sock, const stl::string& raw,
+    static stl::result<stl::string> read_body(sap::network::TCPSocket& sock, const stl::string& raw,
                                               stl::size_t header_end, stl::size_t content_length,
                                               stl::size_t max_body_bytes, stl::string& carry) {
         if (content_length > max_body_bytes)
@@ -54,9 +54,9 @@ namespace sap::http {
         stl::byte chunk[4096];
         while (body.size() < content_length) {
             auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
-            if (n == 0)
+            if (!n || n.value() == 0)
                 return stl::make_error<stl::string>("Connection closed during body read");
-            body.append(reinterpret_cast<const char*>(chunk), n);
+            body.append(reinterpret_cast<const char*>(chunk), n.value());
         }
         if (body.size() > content_length) {
             carry.assign(body, content_length, body.size() - content_length);
@@ -152,14 +152,14 @@ namespace sap::http {
         return ss.str();
     }
 
-    static void send_all(sap::network::ISocket& sock, stl::string_view data) {
+    static void send_all(sap::network::TCPSocket& sock, stl::string_view data) {
         stl::size_t sent = 0;
         while (sent < data.size()) {
             auto n = sock.send(stl::span<const stl::byte>(
                 reinterpret_cast<const stl::byte*>(data.data() + sent), data.size() - sent));
-            if (n == 0)
+            if (!n || n.value() == 0)
                 return;
-            sent += n;
+            sent += n.value();
         }
     }
 
@@ -169,7 +169,7 @@ namespace sap::http {
 
     Server::~Server() { stop(); }
 
-    void Server::handle_client(stl::unique_ptr<sap::network::ISocket> client_socket) {
+    void Server::handle_client(stl::unique_ptr<sap::network::TCPSocket> client_socket) {
         auto& sock = *client_socket;
         // `idle` is true while we're parked in read_header() waiting for the next
         // request on a keep-alive connection. Server::stop() closes only sockets
@@ -182,7 +182,7 @@ namespace sap::http {
         // RAII deregister: runs even on early break / exception.
         struct Deregister {
             Server* self;
-            sap::network::ISocket* s;
+            sap::network::TCPSocket* s;
             ~Deregister() {
                 std::lock_guard<stl::mutex> lk(self->m_ClientsMutex);
                 auto& v = self->m_ActiveClients;
@@ -428,19 +428,20 @@ namespace sap::http {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
+            auto owned = stl::make_unique<sap::network::TCPSocket>(std::move(client.value()));
             if (m_Config.is_multithreaded) {
-                auto* raw = client.release();
+                auto* raw = owned.release();
                 if (!m_JobSystem.submit([this, raw]() {
-                        stl::unique_ptr<sap::network::ISocket> owned(raw);
+                        stl::unique_ptr<sap::network::TCPSocket> owned(raw);
                         handle_client(std::move(owned));
                     })) {
-                    stl::unique_ptr<sap::network::ISocket> owned(raw);
+                    stl::unique_ptr<sap::network::TCPSocket> owned(raw);
                     const char* msg = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
                     send_all(*owned, msg);
                     owned->close();
                 }
             } else {
-                handle_client(std::move(client));
+                handle_client(std::move(owned));
             }
         }
     }

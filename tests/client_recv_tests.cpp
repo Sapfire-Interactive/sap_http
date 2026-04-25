@@ -32,19 +32,20 @@ struct FakeServer {
         thread = stl::thread([this, response = std::move(response)]() {
             auto client = listener->accept();
             if (!client) return;
+            auto& sock = client.value();
             // Drain the request headers (best-effort).
             stl::byte buf[4096];
             stl::string acc;
             while (true) {
-                auto n = client->recv(stl::span<stl::byte>(buf, sizeof(buf)));
-                if (n == 0) break;
-                acc.append(reinterpret_cast<const char*>(buf), n);
+                auto n = sock.recv(stl::span<stl::byte>(buf, sizeof(buf)));
+                if (!n || n.value() == 0) break;
+                acc.append(reinterpret_cast<const char*>(buf), n.value());
                 if (acc.find("\r\n\r\n") != stl::string::npos) break;
             }
-            client->send(stl::span<const stl::byte>(
+            sock.send(stl::span<const stl::byte>(
                 reinterpret_cast<const stl::byte*>(response.data()), response.size()));
             // Close immediately so client's read loop exits
-            client->close();
+            sock.close();
             done = true;
         });
         // Give the listener a moment to be ready

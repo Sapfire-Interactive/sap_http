@@ -57,18 +57,18 @@ static stl::string raw_request(u16 port, const stl::string& data) {
     while (sent < payload.size()) {
         auto n = sock->send(stl::span<const stl::byte>(
             reinterpret_cast<const stl::byte*>(payload.data() + sent), payload.size() - sent));
-        if (n == 0)
+        if (!n || n.value() == 0)
             break;
-        sent += n;
+        sent += n.value();
     }
 
     stl::string response;
     stl::byte buf[4096];
     while (true) {
         auto n = sock->recv(stl::span<stl::byte>(buf, sizeof(buf)));
-        if (n == 0)
+        if (!n || n.value() == 0)
             break;
-        response.append(reinterpret_cast<const char*>(buf), n);
+        response.append(reinterpret_cast<const char*>(buf), n.value());
     }
     sock->close();
     return response;
@@ -249,8 +249,8 @@ TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
     server.stop();
     t.join();
 
-    // recv should have returned <= 0 (connection closed by server)
-    EXPECT_EQ(n, 0u);
+    // recv should have failed or returned 0 (connection closed by server)
+    EXPECT_TRUE(!n || n.value() == 0u);
     // Should have taken roughly the timeout duration, not forever.
     // Allow generous upper bound (3s) but it must not hang.
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
@@ -282,7 +282,7 @@ TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
     server.stop();
     t.join();
 
-    EXPECT_EQ(n, 0u);
+    EXPECT_TRUE(!n || n.value() == 0u);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
     EXPECT_GE(ms, 400);
     EXPECT_LE(ms, 3000);

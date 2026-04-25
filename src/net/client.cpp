@@ -87,19 +87,19 @@ namespace sap::http {
         impl.pool.insert({key, PooledConn{std::move(sock), Clock::now()}});
     }
 
-    static stl::result<> send_all(sap::network::ISocket& sock, stl::string_view data) {
+    static stl::result<> send_all(sap::network::TCPSocket& sock, stl::string_view data) {
         stl::size_t sent = 0;
         while (sent < data.size()) {
             auto n = sock.send(stl::span<const stl::byte>(
                 reinterpret_cast<const stl::byte*>(data.data() + sent), data.size() - sent));
-            if (n == 0)
+            if (!n || n.value() == 0)
                 return stl::make_error<>("Failed to send");
-            sent += n;
+            sent += n.value();
         }
         return stl::result_success();
     }
 
-    static stl::result<> send_request_impl(sap::network::ISocket& sock, const Request& req, bool keep_alive) {
+    static stl::result<> send_request_impl(sap::network::TCPSocket& sock, const Request& req, bool keep_alive) {
         std::ostringstream ss;
         ss << method_to_string(req.method) << " " << req.url.full_path() << " HTTP/1.1\r\n";
         ss << "Host: " << req.url.host << "\r\n";
@@ -129,7 +129,7 @@ namespace sap::http {
     }
 
     // Returns the response and whether the connection is reusable for keep-alive.
-    static stl::result<Response> read_response_impl(sap::network::ISocket& sock, bool& out_keep_alive) {
+    static stl::result<Response> read_response_impl(sap::network::TCPSocket& sock, bool& out_keep_alive) {
         out_keep_alive = false;
         Response resp;
         stl::string buffer;
@@ -140,9 +140,9 @@ namespace sap::http {
         bool is_chunked = false;
         while (true) {
             auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
-            if (n == 0)
+            if (!n || n.value() == 0)
                 break;
-            buffer.append(reinterpret_cast<const char*>(chunk), n);
+            buffer.append(reinterpret_cast<const char*>(chunk), n.value());
             if (buffer.size() > Client::max_response_size)
                 return stl::make_error<Response>("Response exceeds max_response_size");
             if (!headers_done) {

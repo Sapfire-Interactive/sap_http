@@ -206,7 +206,7 @@ namespace sap::http {
         }
 
     private:
-        void handle_client(stl::unique_ptr<sap::network::ISocket> client_socket);
+        void handle_client(stl::unique_ptr<sap::network::TCPSocket> client_socket);
 
         template <typename Handler>
         void add_route(stl::string_view path, EMethod method, Handler&& handler, bool skip_middleware) {
@@ -254,7 +254,7 @@ namespace sap::http {
         // read_header() waiting for the next keep-alive request. Sockets currently
         // executing a handler are left alone so graceful shutdown lets them finish.
         struct ClientEntry {
-            sap::network::ISocket* sock;
+            sap::network::TCPSocket* sock;
             stl::atomic<bool>* idle; // true while parked in read_header
         };
         stl::mutex m_ClientsMutex;

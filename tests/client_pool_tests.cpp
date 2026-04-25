@@ -70,20 +70,21 @@ namespace {
                 auto client = m_Server->accept();
                 if (!client) return;
                 m_AcceptCount.fetch_add(1);
-                serve_connection(*client);
-                client->close();
+                auto& c = client.value();
+                serve_connection(c);
+                c.close();
             }
         }
 
         // Very small HTTP/1.1 request parser: reads until "\r\n\r\n", then pulls
         // Content-Length bytes if present. Returns false on error/close.
-        bool read_one_request(sap::network::ISocket& sock) {
+        bool read_one_request(sap::network::TCPSocket& sock) {
             stl::string buf;
             stl::byte chunk[1024];
             while (buf.find("\r\n\r\n") == stl::string::npos) {
                 auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
-                if (n == 0) return false;
-                buf.append(reinterpret_cast<const char*>(chunk), n);
+                if (!n || n.value() == 0) return false;
+                buf.append(reinterpret_cast<const char*>(chunk), n.value());
                 if (buf.size() > 64 * 1024) return false;
             }
             auto header_end = buf.find("\r\n\r\n");
@@ -101,13 +102,13 @@ namespace {
             std::size_t already = buf.size() - (header_end + 4);
             while (already < content_length) {
                 auto n = sock.recv(stl::span<stl::byte>(chunk, sizeof(chunk)));
-                if (n == 0) return false;
-                already += n;
+                if (!n || n.value() == 0) return false;
+                already += n.value();
             }
             return true;
         }
 
-        void write_response(sap::network::ISocket& sock, bool close_hdr) {
+        void write_response(sap::network::TCPSocket& sock, bool close_hdr) {
             stl::string resp = "HTTP/1.1 200 OK\r\n";
             resp += "Content-Length: " + std::to_string(m_Opts.body.size()) + "\r\n";
             resp += "Connection: ";
@@ -118,12 +119,12 @@ namespace {
             while (sent < resp.size()) {
                 auto n = sock.send(stl::span<const stl::byte>(
                     reinterpret_cast<const stl::byte*>(resp.data() + sent), resp.size() - sent));
-                if (n == 0) return;
-                sent += n;
+                if (!n || n.value() == 0) return;
+                sent += n.value();
             }
         }
 
-        void serve_connection(sap::network::ISocket& sock) {
+        void serve_connection(sap::network::TCPSocket& sock) {
             for (int i = 0; i < m_Opts.max_requests_per_conn; ++i) {
                 if (!read_one_request(sock)) return;
                 m_RequestCount.fetch_add(1);
