@@ -108,6 +108,10 @@ if(SAP_HTTP_BUILD_TESTS)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
+    # https_server_tests programmatically generates self-signed certs via the
+    # OpenSSL API, so the test binary needs OpenSSL on the link line.
+    find_package(OpenSSL 3.0 REQUIRED)
+
     add_executable(sap_http_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/url_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/headers_tests.cpp
@@ -120,6 +124,7 @@ if(SAP_HTTP_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_recv_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_pool_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/middleware_tests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/https_server_tests.cpp
     )
 
     if(SAP_HTTP_BUILD_STATIC)
@@ -131,6 +136,8 @@ if(SAP_HTTP_BUILD_TESTS)
     target_link_libraries(sap_http_tests PRIVATE
         GTest::gtest_main
         GTest::gmock
+        OpenSSL::SSL
+        OpenSSL::Crypto
     )
 
     include(GoogleTest)

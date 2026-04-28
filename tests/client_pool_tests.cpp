@@ -13,7 +13,7 @@ namespace {
 
     // Minimal HTTP/1.1 keep-alive listener used only for these tests.
     //
-    // Why not reuse sap::http::Server? The server in this repo closes the socket
+    // Why not reuse sap::http::HttpServer? The server in this repo closes the socket
     // after every response (see server.cpp handle_client), so it cannot be used
     // to exercise connection reuse on the client side.
     //
@@ -220,11 +220,11 @@ TEST(ClientPoolTest, RetriesOnStalePooledConnection) {
     EXPECT_EQ(server.request_count(), 2);
 }
 
-// End-to-end: the real sap::http::Server must also keep the connection open
+// End-to-end: the real sap::http::HttpServer must also keep the connection open
 // across requests so the client's pool actually has something to reuse.
 TEST(ClientPoolTest, EndToEndServerHonorsKeepAlive) {
-    sap::http::ServerConfig cfg{"127.0.0.1", 11099};
-    sap::http::Server server{std::move(cfg)};
+    sap::http::HttpServerConfig cfg{"127.0.0.1", 11099};
+    sap::http::HttpServer server{std::move(cfg)};
     stl::atomic<int> hits{0};
     server.route("/", sap::http::EMethod::GET,
                  [&](const sap::http::Request&) {

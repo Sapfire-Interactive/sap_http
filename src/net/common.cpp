@@ -1,8 +1,12 @@
 #include "sap_http/net/common.h"
 
+#include <sap_network/tcp_socket.h>
+#include <sap_network/tls_socket.h>
+
 namespace sap::http {
 
-    stl::result<stl::string> read_chunked_body(sap::network::TCPSocket& sock, stl::string& buffer, stl::size_t max_size) {
+    template <sap::network::Socket S>
+    stl::result<stl::string> read_chunked_body(S& sock, stl::string& buffer, stl::size_t max_size) {
         stl::string body;
         stl::byte tmp[4096];
         while (true) {
@@ -57,5 +61,10 @@ namespace sap::http {
             buffer.erase(0, chunk_size + 2);
         }
     }
+
+    template stl::result<stl::string> read_chunked_body<sap::network::TCPSocket>(
+        sap::network::TCPSocket&, stl::string&, stl::size_t);
+    template stl::result<stl::string> read_chunked_body<sap::network::TLSSocket>(
+        sap::network::TLSSocket&, stl::string&, stl::size_t);
 
 } // namespace sap::http

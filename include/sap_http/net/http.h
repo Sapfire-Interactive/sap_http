@@ -1,23 +1,22 @@
 #pragma once
 
-#include <algorithm>
 #include <chrono>
 #include <future>
-#include <mutex>
 #include <optional>
 #include <sap_core/stl/map.h>
 #include <sap_core/stl/vector.h>
 #include <sap_core/types.h>
-#include <sstream>
 
 #include <sap_core/job_system.h>
 #include <sap_core/stl/result.h>
 #include <sap_core/stl/string.h>
 #include <sap_core/stl/unique_ptr.h>
 #include <sap_core/stl/vector.h>
-#include <sap_network/tcp_socket.h>
+#include <sap_network/socket_concept.h>
 
 #include "sap_http/net/status_codes.h"
+#include "sap_network/tcp_socket.h"
+#include "sap_network/tls_socket.h"
 
 namespace sap::http {
 
@@ -167,18 +166,40 @@ namespace sap::http {
         bool skip_middleware{false};
     };
 
-    struct ServerConfig {
+    template <sap::network::Socket S>
+        struct server_config_for;
+
+    struct HttpServerConfig {
         stl::string host{"127.0.0.1"};
         u16 port{8080};
         bool is_multithreaded{false};
         u32 timeout_ms = 10000;
     };
+    template<> struct server_config_for<sap::network::TCPSocket> {
+        using type = HttpServerConfig;
+    };
 
+    struct HttpsServerConfig {
+        stl::string host{"127.0.0.1"};
+        u16 port{8080};
+        bool is_multithreaded{false};
+        u32 timeout_ms = 10000;
+        sap::network::TlsServerConfig tls_cfg;
+    };
+    template<> struct server_config_for<sap::network::TLSSocket> {
+        using type = HttpsServerConfig;
+    };
+
+
+    template<sap::network::Socket S>
     class Server {
     public:
+        using Config = typename server_config_for<S>::type;
+
         Server() = default;
-        Server(ServerConfig cfg);
+        explicit Server(Config cfg);
         ~Server();
+
         static inline stl::size_t max_header_size{8192};
         static inline stl::size_t max_body_size{1024 * 1024}; // 1MB
 
@@ -206,7 +227,7 @@ namespace sap::http {
         }
 
     private:
-        void handle_client(stl::unique_ptr<sap::network::TCPSocket> client_socket);
+        void handle_client(stl::unique_ptr<S> client_socket);
 
         template <typename Handler>
         void add_route(stl::string_view path, EMethod method, Handler&& handler, bool skip_middleware) {
@@ -242,8 +263,8 @@ namespace sap::http {
         }
 
     private:
-        ServerConfig m_Config;
-        stl::unique_ptr<sap::network::TCPSocket> m_ServerSocket;
+        Config m_Config;
+        stl::optional<S> m_ServerSocket;
         stl::vector<Route> m_Routes;
         stl::vector<Middleware> m_Middleware;
         stl::atomic<bool> m_IsRunning{false};
@@ -254,11 +275,14 @@ namespace sap::http {
         // read_header() waiting for the next keep-alive request. Sockets currently
         // executing a handler are left alone so graceful shutdown lets them finish.
         struct ClientEntry {
-            sap::network::TCPSocket* sock;
+            S* sock;
             stl::atomic<bool>* idle; // true while parked in read_header
         };
         stl::mutex m_ClientsMutex;
         stl::vector<ClientEntry> m_ActiveClients;
     };
+
+    using HttpServer = Server<sap::network::TCPSocket>;
+    using HttpsServer = Server<sap::network::TLSSocket>;
 
 } // namespace sap::http

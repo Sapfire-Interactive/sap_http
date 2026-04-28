@@ -47,8 +47,8 @@ TEST(IntegrationTest, HttpBinHeaders) {
 }
 
 TEST(IntegrationTest, ServerClientIntegration) {
-    sap::http::ServerConfig cfg{"127.0.0.1", 9999};
-    sap::http::Server server{std::move(cfg)};
+    sap::http::HttpServerConfig cfg{"127.0.0.1", 9999};
+    sap::http::HttpServer server{std::move(cfg)};
     server.route("/test", sap::http::EMethod::GET,
                  [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "Integration test response"); });
     auto start_result = server.start();
@@ -65,8 +65,8 @@ TEST(IntegrationTest, ServerClientIntegration) {
 }
 
 TEST(IntegrationTest, ServerPostRequest) {
-    sap::http::ServerConfig cfg{"127.0.0.1", 10000};
-    sap::http::Server server{std::move(cfg)};
+    sap::http::HttpServerConfig cfg{"127.0.0.1", 10000};
+    sap::http::HttpServer server{std::move(cfg)};
     server.route("/api/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
         sap::http::Response resp(sap::http::EStatusCode::OK, req.body);
         resp.headers.set("Content-Type", "application/json");

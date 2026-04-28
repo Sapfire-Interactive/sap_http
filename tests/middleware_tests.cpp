@@ -8,10 +8,10 @@
 namespace {
 
     struct ServerFixture {
-        sap::http::Server server;
+        sap::http::HttpServer server;
         stl::thread thread;
 
-        ServerFixture(u16 port) : server(sap::http::ServerConfig{"127.0.0.1", port, false}) {}
+        ServerFixture(u16 port) : server(sap::http::HttpServerConfig{"127.0.0.1", port, false}) {}
 
         void run() {
             auto start = server.start();

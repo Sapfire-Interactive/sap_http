@@ -10,7 +10,7 @@
 
 // Helper: start a server on the given port, run it in a background thread,
 // return the thread. Caller is responsible for stop() + join().
-static stl::thread start_server(sap::http::Server& server) {
+static stl::thread start_server(sap::http::HttpServer& server) {
     auto res = server.start();
     EXPECT_TRUE(res.has_value()) << "Server failed to start: " << res.error();
     stl::thread t([&server]() { server.run(); });
@@ -75,9 +75,9 @@ static stl::string raw_request(u16 port, const stl::string& data) {
 }
 
 TEST(ServerRecvTest, PostBodyReadViaContentLength) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11001;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
@@ -99,11 +99,11 @@ TEST(ServerRecvTest, PostBodyReadViaContentLength) {
 }
 
 TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11002;
-    auto saved = sap::http::Server::max_body_size;
-    sap::http::Server::max_body_size = 64 * 1024;
-    sap::http::Server server(std::move(cfg));
+    auto saved = sap::http::HttpServer::max_body_size;
+    sap::http::HttpServer::max_body_size = 64 * 1024;
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
         // Echo back the body size so we can verify it arrived intact
         return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size()));
@@ -124,18 +124,18 @@ TEST(ServerRecvTest, LargeBodySpanningMultipleChunks) {
     auto resp = raw_request(11002, req);
     server.stop();
     t.join();
-    sap::http::Server::max_body_size = saved;
+    sap::http::HttpServer::max_body_size = saved;
 
     EXPECT_TRUE(resp.find("200 OK") != stl::string::npos);
     EXPECT_TRUE(resp.find("16384") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11003;
-    auto saved = sap::http::Server::max_body_size;
-    sap::http::Server::max_body_size = 128;
-    sap::http::Server server(std::move(cfg));
+    auto saved = sap::http::HttpServer::max_body_size;
+    sap::http::HttpServer::max_body_size = 128;
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
@@ -152,18 +152,18 @@ TEST(ServerRecvTest, BodyExceedsMaxBodySize) {
     auto resp = raw_request(11003, req);
     server.stop();
     t.join();
-    sap::http::Server::max_body_size = saved;
+    sap::http::HttpServer::max_body_size = saved;
 
     // Server should not return 200 — the body read should fail
     EXPECT_TRUE(resp.find("200 OK") == stl::string::npos);
 }
 
 TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11004;
-    auto saved = sap::http::Server::max_header_size;
-    sap::http::Server::max_header_size = 256;
-    sap::http::Server server(std::move(cfg));
+    auto saved = sap::http::HttpServer::max_header_size;
+    sap::http::HttpServer::max_header_size = 256;
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -179,16 +179,16 @@ TEST(ServerRecvTest, HeadersExceedMaxHeaderSize) {
     auto resp = raw_request(11004, req);
     server.stop();
     t.join();
-    sap::http::Server::max_header_size = saved;
+    sap::http::HttpServer::max_header_size = saved;
 
     // Server should reject — no 200 response
     EXPECT_TRUE(resp.find("200 OK") == stl::string::npos);
 }
 
 TEST(ServerRecvTest, InvalidContentLengthDoesNotCrash) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11005;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
@@ -209,9 +209,9 @@ TEST(ServerRecvTest, InvalidContentLengthDoesNotCrash) {
 }
 
 TEST(ServerRecvTest, GetWithNoBodyWorks) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11006;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/hello", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "world"); });
     auto t = start_server(server);
 
@@ -228,10 +228,10 @@ TEST(ServerRecvTest, GetWithNoBodyWorks) {
 }
 
 TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11007;
     cfg.timeout_ms = 500; // 500ms timeout
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -259,10 +259,10 @@ TEST(ServerTimeoutTest, SlowlorisConnectionTimesOut) {
 }
 
 TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11008;
     cfg.timeout_ms = 500;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -289,9 +289,9 @@ TEST(ServerTimeoutTest, PartialHeaderTimesOut) {
 }
 
 TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11020;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
         // Echo back the body length so we can verify exact size
         sap::http::Response resp(sap::http::EStatusCode::OK, req.body);
@@ -342,9 +342,9 @@ TEST(ServerRecvTest, BinaryBodyWithNullBytes) {
 TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
     // A naive parser might think \r\n\r\n inside the body marks header end.
     // Content-Length-aware reading should handle it correctly.
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11021;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
 
@@ -371,9 +371,9 @@ TEST(ServerRecvTest, BodyWithEmbeddedCRLFCRLF) {
 }
 
 TEST(ServerUrlDecodeTest, PercentEncodedSpaceInPathMatchesRoute) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11040;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/hello world", sap::http::EMethod::GET,
                  [](const sap::http::Request& req) {
                      return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
@@ -392,9 +392,9 @@ TEST(ServerUrlDecodeTest, PercentEncodedSpaceInPathMatchesRoute) {
 }
 
 TEST(ServerUrlDecodeTest, PercentEncodedSpecialCharsDecoded) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11041;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/users", sap::http::EMethod::GET,
                  [](const sap::http::Request& req) {
                      return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
@@ -413,9 +413,9 @@ TEST(ServerUrlDecodeTest, PercentEncodedSpecialCharsDecoded) {
 }
 
 TEST(ServerUrlDecodeTest, PathTraversalDotDotRejected) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11042;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/files", sap::http::EMethod::GET,
                  [](const sap::http::Request&) {
                      return sap::http::Response(sap::http::EStatusCode::OK, "file contents");
@@ -437,9 +437,9 @@ TEST(ServerUrlDecodeTest, PathTraversalDotDotRejected) {
 
 TEST(ServerUrlDecodeTest, EncodedPathTraversalRejected) {
     // %2e%2e decodes to ".." — must still be caught after decoding
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11043;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/files", sap::http::EMethod::GET,
                  [](const sap::http::Request&) {
                      return sap::http::Response(sap::http::EStatusCode::OK, "file contents");
@@ -460,9 +460,9 @@ TEST(ServerUrlDecodeTest, EncodedPathTraversalRejected) {
 
 TEST(ServerUrlDecodeTest, DotsInsideSegmentNotRejected) {
     // "file..txt" has ".." inside a segment — valid filename, not a traversal
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11044;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/files", sap::http::EMethod::GET,
                  [](const sap::http::Request& req) {
                      return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
@@ -481,9 +481,9 @@ TEST(ServerUrlDecodeTest, DotsInsideSegmentNotRejected) {
 }
 
 TEST(ServerUrlDecodeTest, MalformedPercentEscapeRejected) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11045;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET,
                  [](const sap::http::Request&) {
                      return sap::http::Response(sap::http::EStatusCode::OK, "OK");
@@ -502,9 +502,9 @@ TEST(ServerUrlDecodeTest, MalformedPercentEscapeRejected) {
 }
 
 TEST(ServerUrlDecodeTest, TruncatedPercentEscapeRejected) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11046;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET,
                  [](const sap::http::Request&) {
                      return sap::http::Response(sap::http::EStatusCode::OK, "OK");
@@ -525,9 +525,9 @@ TEST(ServerUrlDecodeTest, TruncatedPercentEscapeRejected) {
 
 TEST(ServerUrlDecodeTest, EncodedSlashRejected) {
     // %2F (encoded /) rejected so it can't smuggle past segment-aware routing
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11047;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/api", sap::http::EMethod::GET,
                  [](const sap::http::Request&) {
                      return sap::http::Response(sap::http::EStatusCode::OK, "api");
@@ -547,9 +547,9 @@ TEST(ServerUrlDecodeTest, EncodedSlashRejected) {
 
 TEST(ServerUrlDecodeTest, PlusInPathStaysLiteral) {
     // '+' must NOT be decoded to space in paths (that's a query-string rule only)
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11048;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/a+b", sap::http::EMethod::GET,
                  [](const sap::http::Request& req) {
                      return sap::http::Response(sap::http::EStatusCode::OK, req.url.path);
@@ -571,9 +571,9 @@ TEST(ServerUrlDecodeTest, PlusInPathStaysLiteral) {
 
 TEST(ServerRouteTest, PrefixDoesNotMatchAcrossSegmentBoundary) {
     // /api should NOT match /api-v2 — they're different segments
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11030;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "api root"); });
     auto t = start_server(server);
 
@@ -590,9 +590,9 @@ TEST(ServerRouteTest, PrefixDoesNotMatchAcrossSegmentBoundary) {
 
 TEST(ServerRouteTest, PrefixMatchAcrossSegmentBoundaryStillWorks) {
     // /api SHOULD match /api/users — that's a real sub-path
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11031;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "api handler"); });
     auto t = start_server(server);
 
@@ -608,9 +608,9 @@ TEST(ServerRouteTest, PrefixMatchAcrossSegmentBoundaryStillWorks) {
 }
 
 TEST(ServerRouteTest, ExactMatchStillWorks) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11032;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "exact"); });
     auto t = start_server(server);
 
@@ -627,9 +627,9 @@ TEST(ServerRouteTest, ExactMatchStillWorks) {
 
 TEST(ServerRouteTest, NoFalseMatchOnSuffix) {
     // /api should NOT match /apifoo
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11033;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "api"); });
     auto t = start_server(server);
 
@@ -645,9 +645,9 @@ TEST(ServerRouteTest, NoFalseMatchOnSuffix) {
 
 TEST(ServerRouteTest, LongestPrefixStillWins) {
     // When multiple routes could match, the longest valid prefix wins
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11034;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/api", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "short"); });
     server.route("/api/users", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "long"); });
     auto t = start_server(server);
@@ -665,9 +665,9 @@ TEST(ServerRouteTest, LongestPrefixStillWins) {
 }
 
 TEST(ServerMethodTest, UnknownMethodReturns405) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11010;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -683,9 +683,9 @@ TEST(ServerMethodTest, UnknownMethodReturns405) {
 }
 
 TEST(ServerMethodTest, ConnectMethodReturns405) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11011;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -701,9 +701,9 @@ TEST(ServerMethodTest, ConnectMethodReturns405) {
 }
 
 TEST(ServerMethodTest, GarbageMethodReturns405) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11012;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -719,9 +719,9 @@ TEST(ServerMethodTest, GarbageMethodReturns405) {
 }
 
 TEST(ServerMethodTest, UnknownMethodBodyDoesNotSayNotFound) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11015;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -745,9 +745,9 @@ TEST(ServerMethodTest, UnknownMethodBodyDoesNotSayNotFound) {
 TEST(ServerMethodTest, UnknownMethodSkipsRouteHandlers) {
     // Verify that handlers are NOT invoked when an unknown method comes in,
     // even if a route exists at the same path with a known method.
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11016;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
 
     stl::atomic<int> handler_calls{0};
     server.route("/test", sap::http::EMethod::GET, [&handler_calls](const sap::http::Request&) {
@@ -768,9 +768,9 @@ TEST(ServerMethodTest, UnknownMethodSkipsRouteHandlers) {
 }
 
 TEST(ServerMethodTest, KnownMethodsStillWork) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11013;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -786,10 +786,10 @@ TEST(ServerMethodTest, KnownMethodsStillWork) {
 }
 
 TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11014;
     cfg.timeout_ms = 2000;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/test", sap::http::EMethod::POST, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "OK"); });
     auto t = start_server(server);
 
@@ -816,10 +816,10 @@ TEST(ServerMethodTest, UnknownMethodWithBodyDoesNotHang) {
 }
 
 TEST(ServerTimeoutTest, NormalRequestStillWorksWithTimeout) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11009;
     cfg.timeout_ms = 2000; // generous timeout
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/hello", sap::http::EMethod::GET, [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "world"); });
     auto t = start_server(server);
 
@@ -836,9 +836,9 @@ TEST(ServerTimeoutTest, NormalRequestStillWorksWithTimeout) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestSimple) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11200;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
@@ -858,9 +858,9 @@ TEST(ServerRecvTest, ChunkedRequestSimple) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestMultipleChunks) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11201;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
@@ -881,9 +881,9 @@ TEST(ServerRecvTest, ChunkedRequestMultipleChunks) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestHexSize) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11202;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
@@ -903,9 +903,9 @@ TEST(ServerRecvTest, ChunkedRequestHexSize) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestWithExtensions) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11203;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
@@ -924,9 +924,9 @@ TEST(ServerRecvTest, ChunkedRequestWithExtensions) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestWithTrailers) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11204;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
@@ -947,9 +947,9 @@ TEST(ServerRecvTest, ChunkedRequestWithTrailers) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestEmptyBody) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11205;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
@@ -967,9 +967,9 @@ TEST(ServerRecvTest, ChunkedRequestEmptyBody) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestBinaryData) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11206;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST, [](const sap::http::Request& req) {
         sap::http::Response resp(sap::http::EStatusCode::OK, req.body);
         resp.headers.set("X-Body-Size", std::to_string(req.body.size()));
@@ -998,9 +998,9 @@ TEST(ServerRecvTest, ChunkedRequestBinaryData) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestInvalidHexSize) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11207;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
@@ -1019,11 +1019,11 @@ TEST(ServerRecvTest, ChunkedRequestInvalidHexSize) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11208;
-    auto saved = sap::http::Server::max_body_size;
-    sap::http::Server::max_body_size = 100;
-    sap::http::Server server(std::move(cfg));
+    auto saved = sap::http::HttpServer::max_body_size;
+    sap::http::HttpServer::max_body_size = 100;
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.body); });
     auto t = start_server(server);
@@ -1038,15 +1038,15 @@ TEST(ServerRecvTest, ChunkedRequestExceedsMaxBodySize) {
     auto resp = raw_request(11208, req);
     server.stop();
     t.join();
-    sap::http::Server::max_body_size = saved;
+    sap::http::HttpServer::max_body_size = saved;
 
     EXPECT_TRUE(resp.find("400") != stl::string::npos);
 }
 
 TEST(ServerRecvTest, ChunkedRequestSpanningManyChunks) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11209;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
@@ -1067,10 +1067,10 @@ TEST(ServerRecvTest, ChunkedRequestSpanningManyChunks) {
 }
 
 TEST(ServerRecvTest, GracefulShutdownWaitsForInFlightHandler) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11300;
     cfg.is_multithreaded = true;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
 
     stl::atomic<bool> handler_finished{false};
     server.route("/slow", sap::http::EMethod::GET, [&](const sap::http::Request&) {
@@ -1099,10 +1099,10 @@ TEST(ServerRecvTest, GracefulShutdownWaitsForInFlightHandler) {
 }
 
 TEST(ServerRecvTest, GracefulShutdownStopsAcceptingNewConnections) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11301;
     cfg.is_multithreaded = true;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/", sap::http::EMethod::GET,
                  [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "hi"); });
     auto t = start_server(server);
@@ -1115,9 +1115,9 @@ TEST(ServerRecvTest, GracefulShutdownStopsAcceptingNewConnections) {
 }
 
 TEST(ServerRecvTest, MiddlewarePassThrough) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11500;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     stl::atomic<int> mw_calls{0};
     server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
         ++mw_calls;
@@ -1136,9 +1136,9 @@ TEST(ServerRecvTest, MiddlewarePassThrough) {
 }
 
 TEST(ServerRecvTest, MiddlewareShortCircuit) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11501;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     stl::atomic<bool> handler_called{false};
     server.use([](sap::http::Request& req) -> std::optional<sap::http::Response> {
         if (req.headers.get("Authorization").empty())
@@ -1161,9 +1161,9 @@ TEST(ServerRecvTest, MiddlewareShortCircuit) {
 }
 
 TEST(ServerRecvTest, MiddlewareChainOrderAndShortCircuit) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11502;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     stl::vector<int> order;
     stl::mutex order_mu;
     server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
@@ -1196,9 +1196,9 @@ TEST(ServerRecvTest, MiddlewareChainOrderAndShortCircuit) {
 }
 
 TEST(ServerRecvTest, MiddlewareCanMutateRequest) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11503;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.use([](sap::http::Request& req) -> std::optional<sap::http::Response> {
         req.params["user"] = "alice";
         return std::nullopt;
@@ -1216,9 +1216,9 @@ TEST(ServerRecvTest, MiddlewareCanMutateRequest) {
 }
 
 TEST(ServerRecvTest, MiddlewareExceptionBecomes500) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11504;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.use([](sap::http::Request&) -> std::optional<sap::http::Response> {
         throw std::runtime_error("boom");
     });
@@ -1235,9 +1235,9 @@ TEST(ServerRecvTest, MiddlewareExceptionBecomes500) {
 }
 
 TEST(ServerRecvTest, MiddlewareDoesNotRunOnParseFailure) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11505;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     stl::atomic<int> mw_calls{0};
     server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
         ++mw_calls;
@@ -1254,9 +1254,9 @@ TEST(ServerRecvTest, MiddlewareDoesNotRunOnParseFailure) {
 }
 
 TEST(ServerRecvTest, RouteParamSingleCaptured) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11400;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/users/:id", sap::http::EMethod::GET, [](const sap::http::Request& req) {
         return sap::http::Response(sap::http::EStatusCode::OK, req.params.at("id"));
     });
@@ -1270,9 +1270,9 @@ TEST(ServerRecvTest, RouteParamSingleCaptured) {
 }
 
 TEST(ServerRecvTest, RouteParamMultipleCaptured) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11401;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/posts/:post_id/comments/:comment_id", sap::http::EMethod::GET,
                  [](const sap::http::Request& req) {
                      return sap::http::Response(sap::http::EStatusCode::OK,
@@ -1288,9 +1288,9 @@ TEST(ServerRecvTest, RouteParamMultipleCaptured) {
 }
 
 TEST(ServerRecvTest, RouteParamSegmentCountMismatch) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11402;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/users/:id", sap::http::EMethod::GET,
                  [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "matched"); });
     auto t = start_server(server);
@@ -1307,9 +1307,9 @@ TEST(ServerRecvTest, RouteParamSegmentCountMismatch) {
 }
 
 TEST(ServerRecvTest, RouteParamLiteralBeatsParam) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11403;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/users/:id", sap::http::EMethod::GET,
                  [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "param"); });
     server.route("/users/me", sap::http::EMethod::GET,
@@ -1326,9 +1326,9 @@ TEST(ServerRecvTest, RouteParamLiteralBeatsParam) {
 }
 
 TEST(ServerRecvTest, RouteParamLiteralBeatsParamRegardlessOfRegistrationOrder) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11404;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     // Register literal first this time
     server.route("/users/me", sap::http::EMethod::GET,
                  [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "literal"); });
@@ -1344,9 +1344,9 @@ TEST(ServerRecvTest, RouteParamLiteralBeatsParamRegardlessOfRegistrationOrder) {
 }
 
 TEST(ServerRecvTest, RouteParamWithDifferentMethods) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11405;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/users/:id", sap::http::EMethod::GET,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, "GET " + req.params.at("id")); });
     server.route("/users/:id", sap::http::EMethod::DELETE,
@@ -1363,9 +1363,9 @@ TEST(ServerRecvTest, RouteParamWithDifferentMethods) {
 }
 
 TEST(ServerRecvTest, RouteParamCapturesPercentDecodedValue) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11406;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/files/:name", sap::http::EMethod::GET,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, req.params.at("name")); });
     auto t = start_server(server);
@@ -1378,9 +1378,9 @@ TEST(ServerRecvTest, RouteParamCapturesPercentDecodedValue) {
 }
 
 TEST(ServerRecvTest, RouteParamEmptyParamsForStaticRoute) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11407;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/static", sap::http::EMethod::GET, [](const sap::http::Request& req) {
         return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.params.size()));
     });
@@ -1394,9 +1394,9 @@ TEST(ServerRecvTest, RouteParamEmptyParamsForStaticRoute) {
 }
 
 TEST(ServerRecvTest, RunAsyncDoesNotBlock) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11310;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/", sap::http::EMethod::GET,
                  [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "hi"); });
 
@@ -1413,9 +1413,9 @@ TEST(ServerRecvTest, RunAsyncDoesNotBlock) {
 }
 
 TEST(ServerRecvTest, RunAsyncStopJoinsInternalThread) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11311;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     auto start_result = server.start();
     ASSERT_TRUE(start_result.has_value());
     server.run_async();
@@ -1425,9 +1425,9 @@ TEST(ServerRecvTest, RunAsyncStopJoinsInternalThread) {
 }
 
 TEST(ServerRecvTest, StopIsIdempotent) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11302;
-    sap::http::Server server(std::move(cfg));
+    sap::http::HttpServer server(std::move(cfg));
     auto t = start_server(server);
     server.stop();
     server.stop(); // must not crash or hang
@@ -1436,11 +1436,11 @@ TEST(ServerRecvTest, StopIsIdempotent) {
 }
 
 TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
-    sap::http::ServerConfig cfg;
+    sap::http::HttpServerConfig cfg;
     cfg.port = 11210;
-    auto saved = sap::http::Server::max_body_size;
-    sap::http::Server::max_body_size = 64 * 1024;
-    sap::http::Server server(std::move(cfg));
+    auto saved = sap::http::HttpServer::max_body_size;
+    sap::http::HttpServer::max_body_size = 64 * 1024;
+    sap::http::HttpServer server(std::move(cfg));
     server.route("/echo", sap::http::EMethod::POST,
                  [](const sap::http::Request& req) { return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(req.body.size())); });
     auto t = start_server(server);
@@ -1455,7 +1455,7 @@ TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
     auto resp = raw_request(11210, req);
     server.stop();
     t.join();
-    sap::http::Server::max_body_size = saved;
+    sap::http::HttpServer::max_body_size = saved;
 
     EXPECT_TRUE(resp.find("\r\n\r\n16384") != stl::string::npos);
 }

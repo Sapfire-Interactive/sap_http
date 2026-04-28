@@ -1,9 +1,13 @@
 #include "sap_http/net/common.h"
 #include "sap_http/net/http.h"
+#include "sap_network/socket_config.h"
+#include "sap_network/tls_socket.h"
 
 #include <algorithm>
 
+#include <chrono>
 #include <sap_network/tcp_socket.h>
+#include <type_traits>
 
 namespace sap::http {
 
@@ -20,8 +24,8 @@ namespace sap::http {
     // buffer (headers plus any already-read body bytes); `carry` is cleared. Callers
     // thread `carry` across requests so keep-alive connections preserve pipelined bytes
     // that arrived after the current request's headers.
-    static stl::result<stl::string> read_header(sap::network::TCPSocket& sock, stl::size_t max_header_size,
-                                                stl::string& carry) {
+    template <sap::network::Socket S>
+    static stl::result<stl::string> read_header(S& sock, stl::size_t max_header_size, stl::string& carry) {
         stl::byte chunk[4096];
         while (true) {
             auto pos = carry.find("\r\n\r\n");
@@ -44,8 +48,8 @@ namespace sap::http {
     // Reads exactly `content_length` body bytes. `raw` is the header-phase buffer
     // (headers + already-read body prefix). Any bytes past content_length are moved
     // into `carry` for the next pipelined request on the same connection.
-    static stl::result<stl::string> read_body(sap::network::TCPSocket& sock, const stl::string& raw,
-                                              stl::size_t header_end, stl::size_t content_length,
+    template <sap::network::Socket S>
+    static stl::result<stl::string> read_body(S& sock, const stl::string& raw, stl::size_t header_end, stl::size_t content_length,
                                               stl::size_t max_body_bytes, stl::string& carry) {
         if (content_length > max_body_bytes)
             return stl::make_error<stl::string>("Body exceeds max size");
@@ -71,11 +75,9 @@ namespace sap::http {
         if (!std::getline(stream, line)) {
             return stl::make_error<Request>("Empty request");
         }
-
         std::istringstream first_line(line);
         stl::string method_str, path_str, version;
         first_line >> method_str >> path_str >> version;
-
         auto method = string_to_method(method_str);
         auto url_result = URL::from_path(path_str);
         if (!url_result)
@@ -95,7 +97,6 @@ namespace sap::http {
                 req.headers.set(key, value);
             }
         }
-
         return req;
     }
 
@@ -110,16 +111,26 @@ namespace sap::http {
 
     static const char* status_reason_phrase(EStatusCode code) {
         switch (code) {
-        case EStatusCode::OK: return "OK";
-        case EStatusCode::Created: return "Created";
-        case EStatusCode::NoContent: return "No Content";
-        case EStatusCode::BadRequest: return "Bad Request";
-        case EStatusCode::NotFound: return "Not Found";
-        case EStatusCode::MethodNotAllowed: return "Method Not Allowed";
-        case EStatusCode::PayloadTooLarge: return "Payload Too Large";
-        case EStatusCode::RequestHeaderFieldsTooLarge: return "Request Header Fields Too Large";
-        case EStatusCode::InternalServerError: return "Internal Server Error";
-        default: return "Unknown";
+        case EStatusCode::OK:
+            return "OK";
+        case EStatusCode::Created:
+            return "Created";
+        case EStatusCode::NoContent:
+            return "No Content";
+        case EStatusCode::BadRequest:
+            return "Bad Request";
+        case EStatusCode::NotFound:
+            return "Not Found";
+        case EStatusCode::MethodNotAllowed:
+            return "Method Not Allowed";
+        case EStatusCode::PayloadTooLarge:
+            return "Payload Too Large";
+        case EStatusCode::RequestHeaderFieldsTooLarge:
+            return "Request Header Fields Too Large";
+        case EStatusCode::InternalServerError:
+            return "Internal Server Error";
+        default:
+            return "Unknown";
         }
     }
 
@@ -130,15 +141,15 @@ namespace sap::http {
     // incompatible with connection reuse.
     static stl::string build_response(const Response& resp, bool keep_alive) {
         std::ostringstream ss;
-        ss << "HTTP/1.1 " << static_cast<i32>(resp.status_code) << " "
-           << status_reason_phrase(resp.status_code) << "\r\n";
-
+        ss << "HTTP/1.1 " << static_cast<i32>(resp.status_code) << " " << status_reason_phrase(resp.status_code) << "\r\n";
         bool has_content_length = false;
         bool has_connection = false;
         for (const auto& [key, value] : resp.headers.data) {
             auto lk = to_lower(key);
-            if (lk == "content-length") has_content_length = true;
-            else if (lk == "connection") has_connection = true;
+            if (lk == "content-length")
+                has_content_length = true;
+            else if (lk == "connection")
+                has_connection = true;
             ss << key << ": " << value << "\r\n";
         }
         if (!has_content_length)
@@ -152,24 +163,29 @@ namespace sap::http {
         return ss.str();
     }
 
-    static void send_all(sap::network::TCPSocket& sock, stl::string_view data) {
+    template <sap::network::Socket S>
+    static void send_all(S& sock, stl::string_view data) {
         stl::size_t sent = 0;
         while (sent < data.size()) {
-            auto n = sock.send(stl::span<const stl::byte>(
-                reinterpret_cast<const stl::byte*>(data.data() + sent), data.size() - sent));
+            auto n = sock.send(stl::span<const stl::byte>(reinterpret_cast<const stl::byte*>(data.data() + sent), data.size() - sent));
             if (!n || n.value() == 0)
                 return;
             sent += n.value();
         }
     }
 
-    Server::Server(ServerConfig cfg) :
+    template <sap::network::Socket S>
+    Server<S>::Server(Config cfg) :
         m_Config(std::move(cfg)), m_Routes(), m_IsRunning(false),
         m_JobSystem(sap::job_system_config{.thread_count = m_Config.is_multithreaded ? stl::thread::hardware_concurrency() : 0}) {}
 
-    Server::~Server() { stop(); }
+    template <sap::network::Socket S>
+    Server<S>::~Server() {
+        stop();
+    }
 
-    void Server::handle_client(stl::unique_ptr<sap::network::TCPSocket> client_socket) {
+    template <sap::network::Socket S>
+    void Server<S>::handle_client(stl::unique_ptr<S> client_socket) {
         auto& sock = *client_socket;
         // `idle` is true while we're parked in read_header() waiting for the next
         // request on a keep-alive connection. Server::stop() closes only sockets
@@ -182,20 +198,16 @@ namespace sap::http {
         // RAII deregister: runs even on early break / exception.
         struct Deregister {
             Server* self;
-            sap::network::TCPSocket* s;
+            S* s;
             ~Deregister() {
                 std::lock_guard<stl::mutex> lk(self->m_ClientsMutex);
                 auto& v = self->m_ActiveClients;
-                v.erase(std::remove_if(v.begin(), v.end(),
-                                       [s = s](const ClientEntry& e) { return e.sock == s; }),
-                        v.end());
+                v.erase(std::remove_if(v.begin(), v.end(), [s = s](const ClientEntry& e) { return e.sock == s; }), v.end());
             }
         } dereg{this, &sock};
-
         // Carry buffer preserves bytes that arrive past the current request's framing
         // so pipelined follow-up requests on the same keep-alive connection aren't lost.
         stl::string carry;
-
         while (true) {
             idle.store(true, std::memory_order_release);
             auto header_result = read_header(sock, Server::max_header_size, carry);
@@ -210,11 +222,9 @@ namespace sap::http {
             stl::string header_section = raw.substr(0, header_end);
             bool http_1_0 = is_http_1_0(header_section);
             auto req_result = parse_request(header_section);
-
             // Track whether we have to close after this response regardless of what
             // the client asked for (e.g. chunked request body, or a malformed request).
             bool force_close = false;
-
             if (req_result) {
                 auto te = req_result.value().headers.get("Transfer-Encoding");
                 if (te.find("chunked") != stl::string::npos) {
@@ -238,8 +248,7 @@ namespace sap::http {
                             req_result = stl::make_error<Request>("Invalid Content-Length");
                         }
                         if (req_result && content_length > 0) {
-                            auto body_result = read_body(sock, raw, header_end, content_length,
-                                                         Server::max_body_size, carry);
+                            auto body_result = read_body(sock, raw, header_end, content_length, Server::max_body_size, carry);
                             if (body_result)
                                 req_result.value().body = std::move(body_result.value());
                             else
@@ -259,7 +268,6 @@ namespace sap::http {
                     }
                 }
             }
-
             Response resp = req_result ? Response(EStatusCode::NotFound, "Not Found") : Response(EStatusCode::BadRequest, "");
             if (!req_result) {
                 // Bad request: abandon the connection — the stream is in an unknown state.
@@ -290,7 +298,6 @@ namespace sap::http {
                     const Route* best_match = nullptr;
                     int best_score = -1;
                     stl::map<stl::string, stl::string> best_params;
-
                     for (const auto& route : m_Routes) {
                         if (route.method != req.method)
                             continue;
@@ -324,8 +331,7 @@ namespace sap::http {
                                     best_match = &route;
                                     best_params.clear();
                                 }
-                            } else if (req.url.path.size() > route.path.size() &&
-                                       req.url.path.substr(0, route.path.size()) == route.path &&
+                            } else if (req.url.path.size() > route.path.size() && req.url.path.substr(0, route.path.size()) == route.path &&
                                        req.url.path[route.path.size()] == '/') {
                                 // Prefix match scores below any exact match (parameterized or static).
                                 int score = -1 + static_cast<int>(route.segments.size());
@@ -337,7 +343,6 @@ namespace sap::http {
                             }
                         }
                     }
-
                     // Run middleware unless the matched route opts out. Middleware also
                     // runs for unmatched paths so cross-cutting concerns (CORS preflight,
                     // logging) still see them — a matched public_route is the only case
@@ -358,14 +363,12 @@ namespace sap::http {
                                     break;
                                 }
                             } catch (const std::exception& e) {
-                                resp = Response(EStatusCode::InternalServerError,
-                                                stl::string("Middleware error: ") + e.what());
+                                resp = Response(EStatusCode::InternalServerError, stl::string("Middleware error: ") + e.what());
                                 short_circuited = true;
                                 break;
                             }
                         }
                     }
-
                     if (!short_circuited && best_match) {
                         try {
                             resp = best_match->handler(req);
@@ -375,7 +378,6 @@ namespace sap::http {
                     }
                 }
             }
-
             // Decide keep-alive:
             //   HTTP/1.1: keep-alive by default, unless request header says "close"
             //   HTTP/1.0: close by default, unless request header says "keep-alive"
@@ -391,24 +393,35 @@ namespace sap::http {
                     keep_alive = (conn_hdr.find("close") == stl::string::npos);
                 }
             }
-
             stl::string response_str = build_response(resp, keep_alive);
             send_all(sock, response_str);
-
             if (!keep_alive)
                 break;
         }
         sock.close();
     }
 
-    stl::result<> Server::start() {
-        sap::network::SocketConfig sc;
-        sc.host = m_Config.host;
-        sc.port = m_Config.port;
-        sc.reuse_addr = true;
-        sc.recv_timeout = std::chrono::milliseconds{m_Config.timeout_ms};
-        sc.send_timeout = std::chrono::milliseconds{m_Config.timeout_ms};
-        m_ServerSocket = stl::make_unique<sap::network::TCPSocket>(std::move(sc));
+    template <sap::network::Socket S>
+    stl::result<> Server<S>::start() {
+        if constexpr (std::is_same_v<S, sap::network::TCPSocket>) {
+            sap::network::SocketConfig sc;
+            sc.host = m_Config.host;
+            sc.port = m_Config.port;
+            sc.reuse_addr = true;
+            sc.recv_timeout = std::chrono::milliseconds{m_Config.timeout_ms};
+            sc.send_timeout = std::chrono::milliseconds{m_Config.timeout_ms};
+            m_ServerSocket.emplace(std::move(sc));
+        } else if constexpr (std::is_same_v<S, sap::network::TLSSocket>) {
+            sap::network::TlsServerConfig tls = m_Config.tls_cfg;
+            tls.tcp.host = m_Config.host;
+            tls.tcp.port = m_Config.port;
+            tls.tcp.reuse_addr = true;
+            tls.tcp.recv_timeout = std::chrono::milliseconds(m_Config.timeout_ms);
+            tls.tcp.send_timeout = std::chrono::milliseconds(m_Config.timeout_ms);
+            if (tls.alpn_protocols.empty())
+                tls.alpn_protocols.emplace_back("http/1.1");
+            m_ServerSocket.emplace(std::move(tls));
+        }
         if (!m_ServerSocket->valid())
             return stl::make_error<>("Failed to create socket");
         if (!m_ServerSocket->bind())
@@ -419,7 +432,8 @@ namespace sap::http {
         return stl::result_success();
     }
 
-    void Server::run() {
+    template <sap::network::Socket S>
+    void Server<S>::run() {
         while (m_IsRunning.load()) {
             auto client = m_ServerSocket->accept();
             if (!client) {
@@ -428,14 +442,14 @@ namespace sap::http {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
-            auto owned = stl::make_unique<sap::network::TCPSocket>(std::move(client.value()));
+            auto owned = stl::make_unique<S>(std::move(client.value()));
             if (m_Config.is_multithreaded) {
                 auto* raw = owned.release();
                 if (!m_JobSystem.submit([this, raw]() {
-                        stl::unique_ptr<sap::network::TCPSocket> owned(raw);
+                        stl::unique_ptr<S> owned(raw);
                         handle_client(std::move(owned));
                     })) {
-                    stl::unique_ptr<sap::network::TCPSocket> owned(raw);
+                    stl::unique_ptr<S> owned(raw);
                     const char* msg = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
                     send_all(*owned, msg);
                     owned->close();
@@ -446,11 +460,13 @@ namespace sap::http {
         }
     }
 
-    void Server::run_async() {
+    template <sap::network::Socket S>
+    void Server<S>::run_async() {
         m_RunThread = stl::thread([this]() { run(); });
     }
 
-    void Server::stop() {
+    template <sap::network::Socket S>
+    void Server<S>::stop() {
         if (!m_IsRunning.exchange(false)) {
             if (m_RunThread.joinable())
                 m_RunThread.join();
@@ -465,8 +481,12 @@ namespace sap::http {
         {
             std::lock_guard<stl::mutex> lk(m_ClientsMutex);
             for (const auto& e : m_ActiveClients) {
-                if (e.idle->load(std::memory_order_acquire))
-                    e.sock->close();
+                if (e.idle->load(std::memory_order_acquire)) {
+                    if constexpr (std::is_same_v<S, sap::network::TLSSocket>)
+                        e.sock->interrupt_blocking_io();
+                    else
+                        e.sock->close();
+                }
             }
         }
         if (m_Config.is_multithreaded) {
@@ -477,4 +497,6 @@ namespace sap::http {
             m_RunThread.join();
     }
 
+    template class Server<sap::network::TCPSocket>;
+    template class Server<sap::network::TLSSocket>;
 } // namespace sap::http
