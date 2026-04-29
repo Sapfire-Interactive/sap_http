@@ -157,7 +157,7 @@ TEST(ClientPoolTest, ReusesConnectionForSequentialRequests) {
     KeepAliveListener server({.port = 11001});
     ASSERT_TRUE(server.ready());
 
-    sap::http::Client client;
+    sap::http::HttpClient client;
     for (int i = 0; i < 3; ++i) {
         auto r = client.send_req(make_get(11001));
         ASSERT_TRUE(r.has_value()) << r.error();
@@ -170,19 +170,19 @@ TEST(ClientPoolTest, ReusesConnectionForSequentialRequests) {
 
 // Setting idle_timeout to zero disables pooling — every request opens a fresh conn.
 TEST(ClientPoolTest, ZeroIdleTimeoutDisablesPooling) {
-    auto saved = sap::http::Client::idle_timeout;
-    sap::http::Client::idle_timeout = std::chrono::seconds{0};
+    auto saved = sap::http::HttpClient::idle_timeout;
+    sap::http::HttpClient::idle_timeout = std::chrono::seconds{0};
 
     KeepAliveListener server({.port = 11002});
     ASSERT_TRUE(server.ready());
 
-    sap::http::Client client;
+    sap::http::HttpClient client;
     for (int i = 0; i < 3; ++i) {
         auto r = client.send_req(make_get(11002));
         ASSERT_TRUE(r.has_value()) << r.error();
     }
 
-    sap::http::Client::idle_timeout = saved;
+    sap::http::HttpClient::idle_timeout = saved;
     EXPECT_EQ(server.accept_count(), 3);
 }
 
@@ -191,7 +191,7 @@ TEST(ClientPoolTest, ConnectionCloseHeaderBypassesPool) {
     KeepAliveListener server({.port = 11003, .close_after_n = 1});
     ASSERT_TRUE(server.ready());
 
-    sap::http::Client client;
+    sap::http::HttpClient client;
     for (int i = 0; i < 2; ++i) {
         auto r = client.send_req(make_get(11003));
         ASSERT_TRUE(r.has_value()) << r.error();
@@ -205,7 +205,7 @@ TEST(ClientPoolTest, RetriesOnStalePooledConnection) {
     KeepAliveListener server({.port = 11004, .close_after_first_response = true});
     ASSERT_TRUE(server.ready());
 
-    sap::http::Client client;
+    sap::http::HttpClient client;
     auto r1 = client.send_req(make_get(11004));
     ASSERT_TRUE(r1.has_value()) << r1.error();
 
@@ -235,7 +235,7 @@ TEST(ClientPoolTest, EndToEndServerHonorsKeepAlive) {
     server.run_async();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    sap::http::Client client;
+    sap::http::HttpClient client;
     for (int i = 0; i < 3; ++i) {
         auto r = client.send_req(make_get(11099));
         ASSERT_TRUE(r.has_value()) << r.error();
@@ -251,7 +251,7 @@ TEST(ClientPoolTest, ClearPoolForcesReconnect) {
     KeepAliveListener server({.port = 11005});
     ASSERT_TRUE(server.ready());
 
-    sap::http::Client client;
+    sap::http::HttpClient client;
     ASSERT_TRUE(client.send_req(make_get(11005)).has_value());
     client.clear_pool();
     ASSERT_TRUE(client.send_req(make_get(11005)).has_value());

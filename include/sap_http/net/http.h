@@ -4,6 +4,7 @@
 #include <future>
 #include <optional>
 #include <sap_core/stl/map.h>
+#include <sap_core/stl/unordered_map.h>
 #include <sap_core/stl/vector.h>
 #include <sap_core/types.h>
 
@@ -111,8 +112,28 @@ namespace sap::http {
         }
     };
 
+    template <sap::network::Socket S>
+    struct client_config_for;
+
+    struct HttpClientConfig {};
+    template <> struct client_config_for<sap::network::TCPSocket> { using type = HttpClientConfig; };
+
+    struct HttpsClientConfig {
+        bool verify_peer{true};
+        bool verify_hostname{true};
+        stl::string ca_file;
+        stl::string ca_dir;
+        stl::string client_cert_file;
+        stl::string client_key_file;
+        stl::vector<stl::string> alpn_protocols;
+    };
+    template <> struct client_config_for<sap::network::TLSSocket> { using type = HttpsClientConfig; };
+
+    template <sap::network::Socket S>
     class Client {
     public:
+        using Config = typename client_config_for<S>::type;
+
         // Maximum response size the client will accept. Defaults to 10MB.
         // Set higher for large downloads, lower for tighter resource limits.
         static inline stl::size_t max_response_size{10 * 1024 * 1024};
@@ -121,8 +142,9 @@ namespace sap::http {
         // Matches nginx's default keepalive_timeout. Set to zero to disable pooling.
         static inline std::chrono::seconds idle_timeout{90};
 
-        Client();
-        ~Client();
+        Client() = default;
+        explicit Client(Config cfg);
+        ~Client() = default;
         Client(const Client&) = delete;
         Client& operator=(const Client&) = delete;
 
@@ -140,11 +162,21 @@ namespace sap::http {
         static std::future<stl::result<Response>> get(stl::string_view url_str);
         static std::future<stl::result<Response>> post(stl::string_view url_str, stl::string body);
 
-        struct Impl;
-
     private:
-        stl::unique_ptr<Impl> m_Impl;
+        struct PooledConn {
+            stl::unique_ptr<S> sock;
+            std::chrono::steady_clock::time_point last_used;
+        };
+
+        stl::result<Response> do_exchange(const Request& req);
+
+        Config m_Config;
+        stl::mutex m_Mu;
+        stl::unordered_map<stl::string, stl::vector<PooledConn>> m_Pool;
     };
+
+    using HttpClient  = Client<sap::network::TCPSocket>;
+    using HttpsClient = Client<sap::network::TLSSocket>;
 
     using RouteHandler = stl::function<Response(const Request&)>;
     using Middleware = stl::function<std::optional<Response>(Request&)>;

@@ -46,7 +46,7 @@ TEST(MiddlewareTest, ShortCircuitBlocksHandler) {
                     });
     fx.run();
 
-    auto resp = sap::http::Client::get("http://127.0.0.1:11000/secret").get();
+    auto resp = sap::http::HttpClient::get("http://127.0.0.1:11000/secret").get();
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::Unauthorized);
     EXPECT_EQ(resp.value().body, "blocked");
@@ -62,7 +62,7 @@ TEST(MiddlewareTest, PassThroughCallsHandler) {
                     [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "ok"); });
     fx.run();
 
-    auto resp = sap::http::Client::get("http://127.0.0.1:11001/open").get();
+    auto resp = sap::http::HttpClient::get("http://127.0.0.1:11001/open").get();
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(resp.value().body, "ok");
@@ -86,7 +86,7 @@ TEST(MiddlewareTest, PublicRouteSkipsMiddleware) {
                            });
     fx.run();
 
-    auto resp = sap::http::Client::post("http://127.0.0.1:11002/login", "").get();
+    auto resp = sap::http::HttpClient::post("http://127.0.0.1:11002/login", "").get();
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(resp.value().body, "welcome");
@@ -108,12 +108,12 @@ TEST(MiddlewareTest, PublicAndProtectedCoexist) {
                     [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "prot"); });
     fx.run();
 
-    auto pub = sap::http::Client::get("http://127.0.0.1:11003/public").get();
+    auto pub = sap::http::HttpClient::get("http://127.0.0.1:11003/public").get();
     ASSERT_TRUE(pub.has_value());
     EXPECT_EQ(pub.value().status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(pub.value().body, "pub");
 
-    auto prot = sap::http::Client::get("http://127.0.0.1:11003/protected").get();
+    auto prot = sap::http::HttpClient::get("http://127.0.0.1:11003/protected").get();
     ASSERT_TRUE(prot.has_value());
     EXPECT_EQ(prot.value().status_code, sap::http::EStatusCode::Unauthorized);
     EXPECT_EQ(prot.value().body, "blocked");
@@ -140,7 +140,7 @@ TEST(MiddlewareTest, MutatesRequestForHandler) {
     });
     fx.run();
 
-    auto resp = sap::http::Client::get("http://127.0.0.1:11004/projects/7").get();
+    auto resp = sap::http::HttpClient::get("http://127.0.0.1:11004/projects/7").get();
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(resp.value().body, "project=7;user=42");
@@ -163,7 +163,7 @@ TEST(MiddlewareTest, FirstShortCircuitWins) {
                     [](const sap::http::Request&) { return sap::http::Response(sap::http::EStatusCode::OK, "x"); });
     fx.run();
 
-    auto resp = sap::http::Client::get("http://127.0.0.1:11005/x").get();
+    auto resp = sap::http::HttpClient::get("http://127.0.0.1:11005/x").get();
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::Forbidden);
     EXPECT_EQ(resp.value().body, "first");

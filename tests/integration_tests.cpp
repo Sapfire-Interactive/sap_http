@@ -2,7 +2,7 @@
 #include "sap_http/net/http.h"
 
 TEST(IntegrationTest, HttpBinGet) {
-    auto future = sap::http::Client::get("http://httpbingo.org/get");
+    auto future = sap::http::HttpClient::get("http://httpbingo.org/get");
     auto result = future.get();
 
     ASSERT_TRUE(result.has_value());
@@ -13,7 +13,7 @@ TEST(IntegrationTest, HttpBinGet) {
 }
 
 TEST(IntegrationTest, HttpBinPost) {
-    auto future = sap::http::Client::post("http://httpbingo.org/post", R"({"test": "data"})");
+    auto future = sap::http::HttpClient::post("http://httpbingo.org/post", R"({"test": "data"})");
     auto result = future.get();
 
     ASSERT_TRUE(result.has_value());
@@ -23,7 +23,7 @@ TEST(IntegrationTest, HttpBinPost) {
 }
 
 TEST(IntegrationTest, HttpBinStatus404) {
-    auto future = sap::http::Client::get("http://httpbingo.org/status/404");
+    auto future = sap::http::HttpClient::get("http://httpbingo.org/status/404");
     auto result = future.get();
 
     ASSERT_TRUE(result.has_value());
@@ -39,7 +39,7 @@ TEST(IntegrationTest, HttpBinHeaders) {
     sap::http::Request req(sap::http::EMethod::GET, std::move(url_result.value()));
     req.set_header("X-Custom-Header", "test-value");
 
-    auto future = sap::http::Client::async_send(std::move(req));
+    auto future = sap::http::HttpClient::async_send(std::move(req));
     auto result = future.get();
 
     ASSERT_TRUE(result.has_value());
@@ -55,7 +55,7 @@ TEST(IntegrationTest, ServerClientIntegration) {
     ASSERT_TRUE(start_result.has_value()) << "Server failed to start: " << start_result.error();
     stl::thread server_thread([&server]() { server.run(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    auto future = sap::http::Client::get("http://127.0.0.1:9999/test");
+    auto future = sap::http::HttpClient::get("http://127.0.0.1:9999/test");
     auto result = future.get();
     server.stop();
     server_thread.join();
@@ -76,7 +76,7 @@ TEST(IntegrationTest, ServerPostRequest) {
     ASSERT_TRUE(start_result.has_value()) << "Server failed to start: " << start_result.error();
     stl::thread server_thread([&server]() { server.run(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    auto future = sap::http::Client::post("http://127.0.0.1:10000/api/echo", R"({"test": "data"})");
+    auto future = sap::http::HttpClient::post("http://127.0.0.1:10000/api/echo", R"({"test": "data"})");
     auto result = future.get();
     server.stop();
     server_thread.join();

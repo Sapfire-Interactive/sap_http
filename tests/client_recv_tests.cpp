@@ -66,7 +66,7 @@ TEST(ClientRecvTest, MalformedContentLengthDoesNotCrash) {
         "body";
     FakeServer fake(12001, std::move(bad_response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12001/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12001/");
     bool threw = false;
     try {
         auto result = fut.get();
@@ -85,7 +85,7 @@ TEST(ClientRecvTest, OverflowContentLengthDoesNotCrash) {
         "\r\n";
     FakeServer fake(12002, std::move(bad_response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12002/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12002/");
     auto result = fut.get();
 
     SUCCEED();
@@ -98,7 +98,7 @@ TEST(ClientRecvTest, NegativeContentLengthDoesNotCrash) {
         "\r\n";
     FakeServer fake(12003, std::move(bad_response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12003/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12003/");
     auto result = fut.get();
 
     SUCCEED();
@@ -107,8 +107,8 @@ TEST(ClientRecvTest, NegativeContentLengthDoesNotCrash) {
 TEST(ClientRecvTest, ContentLengthExceedingCapIsRejected) {
     // Server claims a huge body via Content-Length — client should reject
     // before allocating, returning an error result.
-    auto saved = sap::http::Client::max_response_size;
-    sap::http::Client::max_response_size = 1024; // 1KB cap
+    auto saved = sap::http::HttpClient::max_response_size;
+    sap::http::HttpClient::max_response_size = 1024; // 1KB cap
 
     stl::string bad_response =
         "HTTP/1.1 200 OK\r\n"
@@ -116,10 +116,10 @@ TEST(ClientRecvTest, ContentLengthExceedingCapIsRejected) {
         "\r\n";
     FakeServer fake(12005, std::move(bad_response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12005/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12005/");
     auto result = fut.get();
 
-    sap::http::Client::max_response_size = saved;
+    sap::http::HttpClient::max_response_size = saved;
 
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().find("max_response_size") != stl::string::npos)
@@ -129,8 +129,8 @@ TEST(ClientRecvTest, ContentLengthExceedingCapIsRejected) {
 TEST(ClientRecvTest, AccumulatedBytesExceedingCapIsRejected) {
     // No Content-Length, just streamed bytes — client must still cap based
     // on accumulated buffer size to prevent OOM from chunked / EOF-framed responses.
-    auto saved = sap::http::Client::max_response_size;
-    sap::http::Client::max_response_size = 512;
+    auto saved = sap::http::HttpClient::max_response_size;
+    sap::http::HttpClient::max_response_size = 512;
 
     // 4KB body, no Content-Length header — client reads until EOF but should
     // bail once it exceeds the cap
@@ -140,10 +140,10 @@ TEST(ClientRecvTest, AccumulatedBytesExceedingCapIsRejected) {
         "\r\n" + big_body;
     FakeServer fake(12006, std::move(bad_response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12006/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12006/");
     auto result = fut.get();
 
-    sap::http::Client::max_response_size = saved;
+    sap::http::HttpClient::max_response_size = saved;
 
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().find("max_response_size") != stl::string::npos)
@@ -152,8 +152,8 @@ TEST(ClientRecvTest, AccumulatedBytesExceedingCapIsRejected) {
 
 TEST(ClientRecvTest, ResponseWithinCapSucceeds) {
     // Sanity: a normal small response under the cap should still work
-    auto saved = sap::http::Client::max_response_size;
-    sap::http::Client::max_response_size = 10 * 1024;
+    auto saved = sap::http::HttpClient::max_response_size;
+    sap::http::HttpClient::max_response_size = 10 * 1024;
 
     stl::string body = "hello world";
     stl::string response =
@@ -162,10 +162,10 @@ TEST(ClientRecvTest, ResponseWithinCapSucceeds) {
         "\r\n" + body;
     FakeServer fake(12007, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12007/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12007/");
     auto result = fut.get();
 
-    sap::http::Client::max_response_size = saved;
+    sap::http::HttpClient::max_response_size = saved;
 
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().status_code, sap::http::EStatusCode::OK);
@@ -179,7 +179,7 @@ TEST(ClientRecvTest, EmptyContentLengthDoesNotCrash) {
         "\r\n";
     FakeServer fake(12004, std::move(bad_response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12004/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12004/");
     auto result = fut.get();
 
     SUCCEED();
@@ -194,7 +194,7 @@ TEST(ClientRecvTest, ChunkedSimpleSingleChunk) {
         "0\r\n\r\n";
     FakeServer fake(12100, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12100/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12100/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body, "hello");
@@ -211,7 +211,7 @@ TEST(ClientRecvTest, ChunkedMultipleChunks) {
         "0\r\n\r\n";
     FakeServer fake(12101, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12101/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12101/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body, "hello world");
@@ -228,7 +228,7 @@ TEST(ClientRecvTest, ChunkedHexSize) {
         "0\r\n\r\n";
     FakeServer fake(12102, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12102/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12102/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body.size(), 26u);
@@ -245,7 +245,7 @@ TEST(ClientRecvTest, ChunkedUppercaseHexSize) {
         "0\r\n\r\n";
     FakeServer fake(12103, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12103/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12103/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body.size(), 255u);
@@ -261,7 +261,7 @@ TEST(ClientRecvTest, ChunkedWithExtensions) {
         "0\r\n\r\n";
     FakeServer fake(12104, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12104/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12104/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body, "hello");
@@ -279,7 +279,7 @@ TEST(ClientRecvTest, ChunkedWithTrailers) {
         "\r\n";
     FakeServer fake(12105, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12105/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12105/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body, "hello");
@@ -293,7 +293,7 @@ TEST(ClientRecvTest, ChunkedEmptyBody) {
         "0\r\n\r\n";
     FakeServer fake(12106, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12106/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12106/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body, "");
@@ -314,7 +314,7 @@ TEST(ClientRecvTest, ChunkedBinaryData) {
         "0\r\n\r\n";
     FakeServer fake(12107, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12107/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12107/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body.size(), 5u);
@@ -330,7 +330,7 @@ TEST(ClientRecvTest, ChunkedInvalidHexSize) {
         "0\r\n\r\n";
     FakeServer fake(12108, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12108/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12108/");
     auto result = fut.get();
     EXPECT_FALSE(result.has_value());
 }
@@ -344,7 +344,7 @@ TEST(ClientRecvTest, ChunkedMissingCRLFAfterChunk) {
         "0\r\n\r\n";
     FakeServer fake(12109, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12109/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12109/");
     auto result = fut.get();
     EXPECT_FALSE(result.has_value());
 }
@@ -358,7 +358,7 @@ TEST(ClientRecvTest, ChunkedTruncatedBeforeTerminator) {
         "5\r\nhel";
     FakeServer fake(12110, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12110/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12110/");
     auto result = fut.get();
     EXPECT_FALSE(result.has_value());
 }
@@ -372,14 +372,14 @@ TEST(ClientRecvTest, ChunkedTruncatedBeforeFinalZero) {
         "5\r\nhello\r\n";
     FakeServer fake(12111, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12111/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12111/");
     auto result = fut.get();
     EXPECT_FALSE(result.has_value());
 }
 
 TEST(ClientRecvTest, ChunkedExceedsMaxResponseSize) {
-    auto saved = sap::http::Client::max_response_size;
-    sap::http::Client::max_response_size = 100;
+    auto saved = sap::http::HttpClient::max_response_size;
+    sap::http::HttpClient::max_response_size = 100;
 
     stl::string data(200, 'A');
     stl::string response =
@@ -390,9 +390,9 @@ TEST(ClientRecvTest, ChunkedExceedsMaxResponseSize) {
         "0\r\n\r\n";
     FakeServer fake(12112, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12112/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12112/");
     auto result = fut.get();
-    sap::http::Client::max_response_size = saved;
+    sap::http::HttpClient::max_response_size = saved;
     EXPECT_FALSE(result.has_value());
 }
 
@@ -409,7 +409,7 @@ TEST(ClientRecvTest, ChunkedManySmallChunks) {
     response += "0\r\n\r\n";
     FakeServer fake(12113, std::move(response));
 
-    auto fut = sap::http::Client::get("http://127.0.0.1:12113/");
+    auto fut = sap::http::HttpClient::get("http://127.0.0.1:12113/");
     auto result = fut.get();
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result.value().body, expected);
