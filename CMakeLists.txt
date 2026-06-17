@@ -39,7 +39,9 @@ if(NOT TARGET sap::core)
     add_subdirectory(sap_core)
 endif()
 set(SAP_NETWORK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-add_subdirectory(sap_network)
+if(NOT TARGET sap::network)
+    add_subdirectory(sap_network)
+endif()
 
 # Shared library
 if(SAP_HTTP_BUILD_SHARED)
