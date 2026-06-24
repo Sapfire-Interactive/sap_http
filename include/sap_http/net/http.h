@@ -17,11 +17,17 @@
 #include <sap_network/socket_concept.h>
 #include <type_traits>
 
+#include "sap_core/async/executor.h"
+#include "sap_core/async/spawn.h"
+#include "sap_core/async/stop_token.h"
 #include "sap_core/async/sync_wait.h"
 #include "sap_core/async/task.h"
 #include "sap_http/net/status_codes.h"
+#include "sap_network/socket_async_concept.h"
 #include "sap_network/tcp_socket.h"
+#include "sap_network/tcp_socket_async.h"
 #include "sap_network/tls_socket.h"
+#include "sap_network/tls_socket_async.h"
 
 namespace sap::http {
 
@@ -188,8 +194,9 @@ namespace sap::http {
     using HttpClient = Client<sap::network::TCPSocket>;
     using HttpsClient = Client<sap::network::TLSSocket>;
 
-    using RouteHandler = stl::function<Response(const Request&)>;
-    using Middleware = stl::function<std::optional<Response>(Request&)>;
+    using RouteHandler      = stl::function<Response(const Request&)>;
+    using Middleware        = stl::function<std::optional<Response>(Request&)>;
+    using RouteHandlerAsync = stl::function<sap::async::Task<Response>(Request)>;
 
     namespace detail {
         // C++20 dependent-false trick to make the else branch not ill-formed (template magic bs)
@@ -211,6 +218,25 @@ namespace sap::http {
                               "- sap::async::Task<Response>(Request) - async, by value");
             }
         }
+
+        template <typename Handler>
+        RouteHandlerAsync make_route_handler_async(Handler&& h) {
+            using H = std::decay_t<Handler>;
+            if constexpr (std::is_invocable_r_v<sap::async::Task<Response>, H, Request>) {
+                return [fn = stl::forward<Handler>(h)](Request req) -> sap::async::Task<Response> {
+                    co_return co_await fn(stl::move(req));
+                };
+            } else if constexpr (std::is_invocable_r_v<sap::async::Task<Response>, H, const Request&>) {
+                return [fn = stl::forward<Handler>(h)](Request req) -> sap::async::Task<Response> {
+                    co_return co_await fn(req);
+                };
+            } else {
+                static_assert(always_false_v<H>,
+                              "ServerAsync route handler must be one of:\n"
+                              "- sap::async::Task<Response>(Request) - by value\n"
+                              "- sap::async::Task<Response>(const Request&) - by const-ref");
+            }
+        }
     } // namespace detail
 
     struct RouteSegment {
@@ -230,7 +256,16 @@ namespace sap::http {
         bool skip_middleware{false};
     };
 
-    template <sap::network::Socket S>
+    struct RouteAsync {
+        stl::string               path;
+        EMethod                   method;
+        RouteHandlerAsync         handler;
+        stl::vector<RouteSegment> segments;
+        bool                      has_params{false};
+        bool                      skip_middleware{false};
+    };
+
+    template <typename S>
     struct server_config_for;
 
     struct HttpServerConfig {
@@ -253,6 +288,16 @@ namespace sap::http {
     };
     template <>
     struct server_config_for<sap::network::TLSSocket> {
+        using type = HttpsServerConfig;
+    };
+
+    template <>
+    struct server_config_for<sap::network::TCPSocketAsync> {
+        using type = HttpServerConfig;
+    };
+
+    template <>
+    struct server_config_for<sap::network::TLSSocketAsync> {
         using type = HttpsServerConfig;
     };
 
@@ -349,5 +394,96 @@ namespace sap::http {
 
     using HttpServer = Server<sap::network::TCPSocket>;
     using HttpsServer = Server<sap::network::TLSSocket>;
+
+    template <sap::network::SocketAsync S>
+    class ServerAsync {
+    public:
+        using Config = typename server_config_for<S>::type;
+
+        static stl::result<ServerAsync> create(Config cfg);
+
+        ~ServerAsync();
+
+        ServerAsync(const ServerAsync&)                   = delete;
+        ServerAsync& operator=(const ServerAsync&)        = delete;
+        // Move is safe before run(); once the accept loop is spawned the
+        // listener holds an Executor reference that would dangle on move.
+        ServerAsync(ServerAsync&&) noexcept            = default;
+        ServerAsync& operator=(ServerAsync&&) noexcept = default;
+
+        static inline stl::size_t max_header_size{8192};
+        static inline stl::size_t max_body_size{1024 * 1024};
+
+        stl::result<> start();
+        void          run();
+        // Thread-safe: closes the listener so accept fails and the run loop drains.
+        // In-flight connections keep running until they complete naturally
+        // (client disconnect, handler returns, peer EOF).
+        void                  stop();
+        sap::async::Executor& executor();
+
+        template <typename M>
+        void use(M&& middleware) {
+            m_Middleware.emplace_back(std::forward<M>(middleware));
+        }
+
+        template <typename Handler>
+        void route(stl::string_view path, EMethod method, Handler&& handler) {
+            add_route(path, method, std::forward<Handler>(handler), /*skip_middleware=*/false);
+        }
+
+        template <typename Handler>
+        void public_route(stl::string_view path, EMethod method, Handler&& handler) {
+            add_route(path, method, std::forward<Handler>(handler), /*skip_middleware=*/true);
+        }
+
+    private:
+        template <typename Handler>
+        void add_route(stl::string_view path, EMethod method, Handler&& handler, bool skip_middleware) {
+            RouteAsync r;
+            r.path            = path;
+            r.method          = method;
+            r.handler         = detail::make_route_handler_async(stl::forward<Handler>(handler));
+            r.skip_middleware = skip_middleware;
+            stl::string p(path);
+            size_t      start = 0;
+            if (!p.empty() && p[0] == '/')
+                start = 1;
+            while (start <= p.size()) {
+                size_t slash = p.find('/', start);
+                size_t end   = (slash == stl::string::npos) ? p.size() : slash;
+                if (end > start) {
+                    RouteSegment seg;
+                    if (p[start] == ':') {
+                        seg.is_param = true;
+                        seg.text     = p.substr(start + 1, end - start - 1);
+                        r.has_params = true;
+                    } else {
+                        seg.text = p.substr(start, end - start);
+                    }
+                    r.segments.push_back(std::move(seg));
+                }
+                if (slash == stl::string::npos)
+                    break;
+                start = slash + 1;
+            }
+            m_Routes.push_back(std::move(r));
+        }
+
+        Config                  m_Config;
+        sap::async::Executor    m_Executor;
+        stl::optional<S>        m_Listener;
+        stl::vector<RouteAsync> m_Routes;
+        stl::vector<Middleware> m_Middleware;
+        sap::async::StopSource  m_StopSource;
+        // stop() is single-threaded by contract (called from the executor's
+        // thread, typically from inside a route handler).
+        bool                    m_Running = false;
+
+        ServerAsync(sap::io::Reactor reactor, Config cfg);
+    };
+
+    using HttpServerAsync  = ServerAsync<sap::network::TCPSocketAsync>;
+    using HttpsServerAsync = ServerAsync<sap::network::TLSSocketAsync>;
 
 } // namespace sap::http

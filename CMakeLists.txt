@@ -32,6 +32,7 @@ set(HTTP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/client.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/response.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net/server.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/net/server_async.cpp
 )
 
 set(SAP_CORE_BUILD_TESTS ${SAP_HTTP_BUILD_TESTS})
@@ -127,6 +128,7 @@ if(SAP_HTTP_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_pool_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/middleware_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/https_server_tests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/server_async_tests.cpp
     )
 
     if(SAP_HTTP_BUILD_STATIC)
