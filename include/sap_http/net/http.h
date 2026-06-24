@@ -5,6 +5,7 @@
 #include <optional>
 #include <sap_core/stl/map.h>
 #include <sap_core/stl/unordered_map.h>
+#include <sap_core/stl/utility.h>
 #include <sap_core/stl/vector.h>
 #include <sap_core/types.h>
 
@@ -14,7 +15,10 @@
 #include <sap_core/stl/unique_ptr.h>
 #include <sap_core/stl/vector.h>
 #include <sap_network/socket_concept.h>
+#include <type_traits>
 
+#include "sap_core/async/sync_wait.h"
+#include "sap_core/async/task.h"
 #include "sap_http/net/status_codes.h"
 #include "sap_network/tcp_socket.h"
 #include "sap_network/tls_socket.h"
@@ -116,7 +120,10 @@ namespace sap::http {
     struct client_config_for;
 
     struct HttpClientConfig {};
-    template <> struct client_config_for<sap::network::TCPSocket> { using type = HttpClientConfig; };
+    template <>
+    struct client_config_for<sap::network::TCPSocket> {
+        using type = HttpClientConfig;
+    };
 
     struct HttpsClientConfig {
         bool verify_peer{true};
@@ -127,7 +134,10 @@ namespace sap::http {
         stl::string client_key_file;
         stl::vector<stl::string> alpn_protocols;
     };
-    template <> struct client_config_for<sap::network::TLSSocket> { using type = HttpsClientConfig; };
+    template <>
+    struct client_config_for<sap::network::TLSSocket> {
+        using type = HttpsClientConfig;
+    };
 
     template <sap::network::Socket S>
     class Client {
@@ -175,14 +185,36 @@ namespace sap::http {
         stl::unordered_map<stl::string, stl::vector<PooledConn>> m_Pool;
     };
 
-    using HttpClient  = Client<sap::network::TCPSocket>;
+    using HttpClient = Client<sap::network::TCPSocket>;
     using HttpsClient = Client<sap::network::TLSSocket>;
 
     using RouteHandler = stl::function<Response(const Request&)>;
     using Middleware = stl::function<std::optional<Response>(Request&)>;
 
+    namespace detail {
+        // C++20 dependent-false trick to make the else branch not ill-formed (template magic bs)
+        template <typename>
+        inline constexpr bool always_false_v = false;
+
+        template <typename Handler>
+        RouteHandler make_route_handler(Handler&& h) {
+            using H = std::decay_t<Handler>;
+            if constexpr (std::is_invocable_r_v<Response, H, const Request&>) {
+                return RouteHandler(stl::forward<Handler>(h));
+            } else if constexpr(std::is_invocable_r_v<sap::async::Task<Response>, H, Request>) {
+                return [fn = stl::forward<Handler>(h)](const Request& req) -> Response { return sap::async::sync_wait(fn(req)); };
+            } else {
+                static_assert(always_false_v<H>,
+                              "Route handler must be one of:\n"
+                              "- Response(const Request&) - sync\n"
+                              "- sap::async::Task<Response>(const Request&) - async, by const-ref\n"
+                              "- sap::async::Task<Response>(Request) - async, by value");
+            }
+        }
+    } // namespace detail
+
     struct RouteSegment {
-        stl::string text;  // literal text or param name (without ':')
+        stl::string text; // literal text or param name (without ':')
         bool is_param{false};
     };
 
@@ -199,7 +231,7 @@ namespace sap::http {
     };
 
     template <sap::network::Socket S>
-        struct server_config_for;
+    struct server_config_for;
 
     struct HttpServerConfig {
         stl::string host{"127.0.0.1"};
@@ -207,7 +239,8 @@ namespace sap::http {
         bool is_multithreaded{false};
         u32 timeout_ms = 10000;
     };
-    template<> struct server_config_for<sap::network::TCPSocket> {
+    template <>
+    struct server_config_for<sap::network::TCPSocket> {
         using type = HttpServerConfig;
     };
 
@@ -218,12 +251,12 @@ namespace sap::http {
         u32 timeout_ms = 10000;
         sap::network::TlsServerConfig tls_cfg;
     };
-    template<> struct server_config_for<sap::network::TLSSocket> {
+    template <>
+    struct server_config_for<sap::network::TLSSocket> {
         using type = HttpsServerConfig;
     };
 
-
-    template<sap::network::Socket S>
+    template <sap::network::Socket S>
     class Server {
     public:
         using Config = typename server_config_for<S>::type;
@@ -266,7 +299,7 @@ namespace sap::http {
             Route r;
             r.path = path;
             r.method = method;
-            r.handler = std::forward<Handler>(handler);
+            r.handler = detail::make_route_handler(stl::forward<Handler>(handler));
             r.skip_middleware = skip_middleware;
             // Pre-split path into segments and detect param segments (":name")
             stl::string p(path);

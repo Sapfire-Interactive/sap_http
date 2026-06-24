@@ -1459,3 +1459,340 @@ TEST(ServerRecvTest, ChunkedRequestLargeChunkSpanningRecvCalls) {
 
     EXPECT_TRUE(resp.find("\r\n\r\n16384") != stl::string::npos);
 }
+
+// ----------------------------------------------------------------------------
+// End-to-end tests for Task<Response> handlers.
+// These prove the route() if-constexpr dispatch wires Task handlers through
+// sync_wait correctly and the server serves requests via them indistinguishably
+// from sync handlers.
+// ----------------------------------------------------------------------------
+
+#include <sap_core/async/task.h>
+
+#include <atomic>
+
+TEST(AsyncHandlerTest, ByValueServesGet) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11600;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/v", sap::http::EMethod::GET,
+                 [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, "by-value");
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /v HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11600, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("200 OK"), stl::string::npos);
+    EXPECT_NE(resp.find("by-value"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ByConstRefServesGet) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11601;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/r", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, "by-ref");
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /r HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11601, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("200 OK"), stl::string::npos);
+    EXPECT_NE(resp.find("by-ref"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, EchoesPostBody) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11602;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](sap::http::Request req) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, req.body);
+                 });
+    auto t = start_server(server);
+
+    stl::string body = R"({"k":"v"})";
+    stl::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                      "\r\n" + body;
+    auto resp = raw_request(11602, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("200 OK"), stl::string::npos);
+    EXPECT_NE(resp.find(body), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, SetsResponseHeaders) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11603;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/h", sap::http::EMethod::GET,
+                 [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     sap::http::Response r(sap::http::EStatusCode::OK, R"({"x":1})");
+                     r.headers.set("Content-Type", "application/json");
+                     r.headers.set("X-Custom", "yes");
+                     co_return r;
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /h HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11603, req);
+    server.stop();
+    t.join();
+
+    // Headers::set stores keys case-insensitively; the wire form is lowercase.
+    EXPECT_NE(resp.find("content-type: application/json"), stl::string::npos);
+    EXPECT_NE(resp.find("x-custom: yes"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ReturnsCreatedStatus) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11604;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/new", sap::http::EMethod::POST,
+                 [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::Created, R"({"id":1})");
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "POST /new HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: 0\r\n\r\n";
+    auto resp = raw_request(11604, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("201 Created"), stl::string::npos);
+    EXPECT_NE(resp.find(R"({"id":1})"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ReturnsNotFoundFromUnmatchedPath) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11605;
+    sap::http::HttpServer server(std::move(cfg));
+    // Only /known is registered; /missing must hit the server's default 404.
+    server.route("/known", sap::http::EMethod::GET,
+                 [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, "known");
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /missing HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11605, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("404"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ReturnsNoContent) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11606;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/del", sap::http::EMethod::DELETE,
+                 [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::NoContent, "");
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "DELETE /del HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11606, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("204 No Content"), stl::string::npos);
+    EXPECT_NE(resp.find("content-length: 0"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ExceptionInTaskBodyReturns500) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11607;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/boom", sap::http::EMethod::GET,
+                 [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     throw std::runtime_error("handler-boom");
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, "");
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /boom HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11607, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("500 Internal Server Error"), stl::string::npos);
+    EXPECT_NE(resp.find("handler-boom"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ChainsCoAwaitOnInnerTask) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11608;
+    sap::http::HttpServer server(std::move(cfg));
+
+    auto make_body = [](int n) -> sap::async::Task<stl::string> {
+        co_return "answer:" + std::to_string(n);
+    };
+
+    server.route("/chain", sap::http::EMethod::GET,
+                 [make_body](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     auto a = co_await make_body(1);
+                     auto b = co_await make_body(2);
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, a + "|" + b);
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /chain HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11608, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("answer:1|answer:2"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ExceptionFromAwaitedTaskReturns500) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11609;
+    sap::http::HttpServer server(std::move(cfg));
+
+    auto failing_inner = []() -> sap::async::Task<int> {
+        throw std::runtime_error("inner-boom");
+        co_return 0;
+    };
+
+    server.route("/await-boom", sap::http::EMethod::GET,
+                 [failing_inner](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     int n = co_await failing_inner();
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, std::to_string(n));
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /await-boom HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11609, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("500 Internal Server Error"), stl::string::npos);
+    EXPECT_NE(resp.find("inner-boom"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, RouteParamsFlowIntoTaskHandler) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11610;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/users/:id", sap::http::EMethod::GET,
+                 [](sap::http::Request req) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK,
+                                                   "user:" + req.params.at("id"));
+                 });
+    auto t = start_server(server);
+
+    stl::string req_str = "GET /users/42 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto resp = raw_request(11610, req_str);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("200 OK"), stl::string::npos);
+    EXPECT_NE(resp.find("user:42"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, CapturedAtomicCounterIncrementsAcrossRequests) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11611;
+    sap::http::HttpServer server(std::move(cfg));
+
+    auto counter = std::make_shared<std::atomic<int>>(0);
+    server.route("/inc", sap::http::EMethod::GET,
+                 [counter](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     int n = counter->fetch_add(1) + 1;
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, "n=" + std::to_string(n));
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /inc HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    auto r1 = raw_request(11611, req);
+    auto r2 = raw_request(11611, req);
+    auto r3 = raw_request(11611, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(r1.find("n=1"), stl::string::npos);
+    EXPECT_NE(r2.find("n=2"), stl::string::npos);
+    EXPECT_NE(r3.find("n=3"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, ReadsRequestHeader) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11612;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/h", sap::http::EMethod::GET,
+                 [](sap::http::Request req) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK,
+                                                   req.headers.get("X-In"));
+                 });
+    auto t = start_server(server);
+
+    stl::string req = "GET /h HTTP/1.1\r\nHost: 127.0.0.1\r\nX-In: ping\r\n\r\n";
+    auto resp = raw_request(11612, req);
+    server.stop();
+    t.join();
+
+    EXPECT_NE(resp.find("\r\n\r\nping"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, MixedSyncAndAsyncRoutesServeIndependently) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11613;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/sync", sap::http::EMethod::GET,
+                 [](const sap::http::Request&) {
+                     return sap::http::Response(sap::http::EStatusCode::OK, "from-sync");
+                 });
+    server.route("/async", sap::http::EMethod::GET,
+                 [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, "from-async");
+                 });
+    auto t = start_server(server);
+
+    auto r_sync = raw_request(11613, "GET /sync HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    auto r_async = raw_request(11613, "GET /async HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    server.stop();
+    t.join();
+
+    EXPECT_NE(r_sync.find("from-sync"), stl::string::npos);
+    EXPECT_NE(r_async.find("from-async"), stl::string::npos);
+}
+
+TEST(AsyncHandlerTest, LargeBodyEchoThroughTask) {
+    sap::http::HttpServerConfig cfg;
+    cfg.port = 11614;
+    sap::http::HttpServer server(std::move(cfg));
+    server.route("/echo", sap::http::EMethod::POST,
+                 [](sap::http::Request req) -> sap::async::Task<sap::http::Response> {
+                     co_return sap::http::Response(sap::http::EStatusCode::OK, req.body);
+                 });
+    auto t = start_server(server);
+
+    stl::string body(16384, 'x');
+    stl::string req = "POST /echo HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                      "\r\n" + body;
+    auto resp = raw_request(11614, req);
+    server.stop();
+    t.join();
+
+    auto pos = resp.find("\r\n\r\n");
+    ASSERT_NE(pos, stl::string::npos);
+    stl::string returned_body = resp.substr(pos + 4);
+    EXPECT_EQ(returned_body.size(), body.size());
+}

@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "sap_http/net/http.h"
 
+#include <sap_core/async/task.h>
+
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -141,6 +143,84 @@ TEST(MiddlewareTest, MutatesRequestForHandler) {
     fx.run();
 
     auto resp = sap::http::HttpClient::get("http://127.0.0.1:11004/projects/7").get();
+    ASSERT_TRUE(resp.has_value());
+    EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::OK);
+    EXPECT_EQ(resp.value().body, "project=7;user=42");
+}
+
+// An async (Task<Response>) handler registered via public_route() must also
+// skip middleware, same as sync public routes. Proves the if-constexpr dispatch
+// preserves the skip_middleware flag.
+TEST(MiddlewareTest, AsyncPublicRouteSkipsMiddleware) {
+    ServerFixture fx(11020);
+    std::atomic<int> mw_calls{0};
+    std::atomic<int> handler_calls{0};
+
+    fx.server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
+        mw_calls.fetch_add(1);
+        return sap::http::Response(sap::http::EStatusCode::Unauthorized, "blocked");
+    });
+    fx.server.public_route("/login", sap::http::EMethod::POST,
+                           [&](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                               handler_calls.fetch_add(1);
+                               co_return sap::http::Response(sap::http::EStatusCode::OK, "welcome");
+                           });
+    fx.run();
+
+    auto resp = sap::http::HttpClient::post("http://127.0.0.1:11020/login", "").get();
+    ASSERT_TRUE(resp.has_value());
+    EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::OK);
+    EXPECT_EQ(resp.value().body, "welcome");
+    EXPECT_EQ(mw_calls.load(), 0);
+    EXPECT_EQ(handler_calls.load(), 1);
+}
+
+// A regular (non-public) async route still runs middleware. Mirror of the
+// sync PassThroughCallsHandler test, but with a Task-returning handler.
+TEST(MiddlewareTest, AsyncProtectedRouteRunsMiddleware) {
+    ServerFixture fx(11021);
+    std::atomic<int> mw_calls{0};
+
+    fx.server.use([&](sap::http::Request&) -> std::optional<sap::http::Response> {
+        mw_calls.fetch_add(1);
+        return std::nullopt;
+    });
+    fx.server.route("/api", sap::http::EMethod::GET,
+                    [](sap::http::Request) -> sap::async::Task<sap::http::Response> {
+                        co_return sap::http::Response(sap::http::EStatusCode::OK, "data");
+                    });
+    fx.run();
+
+    auto resp = sap::http::HttpClient::get("http://127.0.0.1:11021/api").get();
+    ASSERT_TRUE(resp.has_value());
+    EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::OK);
+    EXPECT_EQ(resp.value().body, "data");
+    EXPECT_EQ(mw_calls.load(), 1);
+}
+
+// Middleware that mutates the request (e.g. stashes user id in params) is
+// observed by a downstream Task handler. Proves that the request seen by the
+// Task is the one already-modified by middleware, not an earlier copy.
+TEST(MiddlewareTest, AsyncHandlerSeesMutatedRequest) {
+    ServerFixture fx(11022);
+
+    fx.server.use([](sap::http::Request& req) -> std::optional<sap::http::Response> {
+        req.params["_user_id"] = "42";
+        return std::nullopt;
+    });
+    fx.server.route("/projects/:id", sap::http::EMethod::GET,
+                    [](sap::http::Request req) -> sap::async::Task<sap::http::Response> {
+                        auto path_id = req.params.find("id");
+                        auto user_id = req.params.find("_user_id");
+                        EXPECT_NE(path_id, req.params.end());
+                        EXPECT_NE(user_id, req.params.end());
+                        stl::string body = stl::string("project=") + path_id->second
+                                         + stl::string(";user=") + user_id->second;
+                        co_return sap::http::Response(sap::http::EStatusCode::OK, body);
+                    });
+    fx.run();
+
+    auto resp = sap::http::HttpClient::get("http://127.0.0.1:11022/projects/7").get();
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp.value().status_code, sap::http::EStatusCode::OK);
     EXPECT_EQ(resp.value().body, "project=7;user=42");
