@@ -122,7 +122,7 @@ namespace sap::http {
         }
     };
 
-    template <sap::network::Socket S>
+    template <typename S>
     struct client_config_for;
 
     struct HttpClientConfig {};
@@ -142,6 +142,16 @@ namespace sap::http {
     };
     template <>
     struct client_config_for<sap::network::TLSSocket> {
+        using type = HttpsClientConfig;
+    };
+
+    template <>
+    struct client_config_for<sap::network::TCPSocketAsync> {
+        using type = HttpClientConfig;
+    };
+
+    template <>
+    struct client_config_for<sap::network::TLSSocketAsync> {
         using type = HttpsClientConfig;
     };
 
@@ -193,6 +203,32 @@ namespace sap::http {
 
     using HttpClient = Client<sap::network::TCPSocket>;
     using HttpsClient = Client<sap::network::TLSSocket>;
+
+    template <sap::network::SocketAsync S>
+    class ClientAsync {
+    public:
+        using Config = typename client_config_for<S>::type;
+
+        static inline stl::size_t max_response_size{10 * 1024 * 1024};
+
+        ClientAsync(sap::async::Executor& ex, Config cfg = {});
+        ~ClientAsync() = default;
+        ClientAsync(const ClientAsync&)            = delete;
+        ClientAsync& operator=(const ClientAsync&) = delete;
+        ClientAsync(ClientAsync&&)                 = delete;
+        ClientAsync& operator=(ClientAsync&&)      = delete;
+
+        sap::async::Task<stl::result<Response>> send(Request req);
+        sap::async::Task<stl::result<Response>> get(stl::string_view url);
+        sap::async::Task<stl::result<Response>> post(stl::string_view url, stl::string body);
+
+    private:
+        sap::async::Executor& m_Executor;
+        Config                m_Config;
+    };
+
+    using HttpClientAsync  = ClientAsync<sap::network::TCPSocketAsync>;
+    using HttpsClientAsync = ClientAsync<sap::network::TLSSocketAsync>;
 
     using RouteHandler      = stl::function<Response(const Request&)>;
     using Middleware        = stl::function<std::optional<Response>(Request&)>;
