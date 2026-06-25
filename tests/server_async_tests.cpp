@@ -27,6 +27,8 @@ namespace {
     constexpr u16 PORT_NOTFOUND   = 12106;
     constexpr u16 PORT_KEEPALIVE  = 12107;
     constexpr u16 PORT_ASYNC_MW   = 12108;
+    constexpr u16 PORT_MW_CHAIN   = 12109;
+    constexpr u16 PORT_MW_THROW   = 12110;
 
     stl::thread start_async_server(HttpServerAsync& server) {
         auto res = server.start();
@@ -276,6 +278,61 @@ TEST(ServerAsyncTest, AsyncMiddlewareCanSuspend) {
     }
 
     trigger_shutdown(PORT_ASYNC_MW);
+    if (t.joinable())
+        t.join();
+}
+
+TEST(ServerAsyncTest, MiddlewareChainOrder) {
+    auto _sr = make_server(PORT_MW_CHAIN); ASSERT_TRUE(_sr.has_value()); auto& server = _sr.value();
+    auto& ex = server.executor();
+    server.use([](Request& req) -> std::optional<Response> {
+        req.headers.set("X-Trace", req.headers.get("X-Trace") + "a");
+        return std::nullopt;
+    });
+    server.use([&ex](Request& req) -> Task<std::optional<Response>> {
+        co_await sleep_for(ex, std::chrono::milliseconds(5));
+        req.headers.set("X-Trace", req.headers.get("X-Trace") + "b");
+        co_return std::nullopt;
+    });
+    server.use([](Request& req) -> std::optional<Response> {
+        req.headers.set("X-Trace", req.headers.get("X-Trace") + "c");
+        return std::nullopt;
+    });
+    server.route("/trace", EMethod::GET,
+                 [](const Request& req) -> Task<Response> { co_return Response(EStatusCode::OK, req.headers.get("X-Trace")); });
+    route_shutdown(server);
+    auto t = start_async_server(server);
+
+    auto sock = raw_connect(PORT_MW_CHAIN);
+    ASSERT_NE(sock, nullptr);
+    ASSERT_TRUE(send_all(*sock, "GET /trace HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+    auto resp = recv_until_close(*sock);
+    EXPECT_NE(resp.find("HTTP/1.1 200"), std::string::npos);
+    EXPECT_NE(resp.find("\r\n\r\nabc"), std::string::npos);
+
+    trigger_shutdown(PORT_MW_CHAIN);
+    if (t.joinable())
+        t.join();
+}
+
+TEST(ServerAsyncTest, MiddlewareExceptionReturns500) {
+    auto _sr = make_server(PORT_MW_THROW); ASSERT_TRUE(_sr.has_value()); auto& server = _sr.value();
+    server.use([](Request&) -> Task<std::optional<Response>> {
+        throw std::runtime_error("mw boom");
+        co_return std::nullopt;
+    });
+    server.route("/x", EMethod::GET, [](const Request&) -> Task<Response> { co_return Response(EStatusCode::OK, "unreachable"); });
+    route_shutdown(server);
+    auto t = start_async_server(server);
+
+    auto sock = raw_connect(PORT_MW_THROW);
+    ASSERT_NE(sock, nullptr);
+    ASSERT_TRUE(send_all(*sock, "GET /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+    auto resp = recv_until_close(*sock);
+    EXPECT_NE(resp.find("HTTP/1.1 500"), std::string::npos);
+    EXPECT_NE(resp.find("Middleware error"), std::string::npos);
+
+    trigger_shutdown(PORT_MW_THROW);
     if (t.joinable())
         t.join();
 }
