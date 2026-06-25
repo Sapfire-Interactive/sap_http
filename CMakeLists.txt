@@ -131,6 +131,7 @@ if(SAP_HTTP_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/https_server_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/server_async_tests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_async_tests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/https_server_async_tests.cpp
     )
 
     if(SAP_HTTP_BUILD_STATIC)
