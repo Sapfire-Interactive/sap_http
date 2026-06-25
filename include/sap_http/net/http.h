@@ -197,6 +197,7 @@ namespace sap::http {
     using RouteHandler      = stl::function<Response(const Request&)>;
     using Middleware        = stl::function<std::optional<Response>(Request&)>;
     using RouteHandlerAsync = stl::function<sap::async::Task<Response>(Request)>;
+    using MiddlewareAsync   = stl::function<sap::async::Task<std::optional<Response>>(Request&)>;
 
     namespace detail {
         // C++20 dependent-false trick to make the else branch not ill-formed (template magic bs)
@@ -235,6 +236,23 @@ namespace sap::http {
                               "ServerAsync route handler must be one of:\n"
                               "- sap::async::Task<Response>(Request) - by value\n"
                               "- sap::async::Task<Response>(const Request&) - by const-ref");
+            }
+        }
+
+        template <typename M>
+        MiddlewareAsync make_middleware_async(M&& m) {
+            using T = std::decay_t<M>;
+            if constexpr (std::is_invocable_r_v<sap::async::Task<std::optional<Response>>, T, Request&>) {
+                return [fn = stl::forward<M>(m)](Request& req) -> sap::async::Task<std::optional<Response>> {
+                    co_return co_await fn(req);
+                };
+            } else if constexpr (std::is_invocable_r_v<std::optional<Response>, T, Request&>) {
+                return [fn = stl::forward<M>(m)](Request& req) -> sap::async::Task<std::optional<Response>> { co_return fn(req); };
+            } else {
+                static_assert(always_false_v<T>,
+                              "ServerAsync middleware must be one of:\n"
+                              "- std::optional<Response>(Request&) - sync\n"
+                              "- sap::async::Task<std::optional<Response>>(Request&) - async");
             }
         }
     } // namespace detail
@@ -424,7 +442,7 @@ namespace sap::http {
 
         template <typename M>
         void use(M&& middleware) {
-            m_Middleware.emplace_back(std::forward<M>(middleware));
+            m_Middleware.emplace_back(detail::make_middleware_async(std::forward<M>(middleware)));
         }
 
         template <typename Handler>
@@ -470,12 +488,12 @@ namespace sap::http {
             m_Routes.push_back(std::move(r));
         }
 
-        Config                  m_Config;
-        sap::async::Executor    m_Executor;
-        stl::optional<S>        m_Listener;
-        stl::vector<RouteAsync> m_Routes;
-        stl::vector<Middleware> m_Middleware;
-        sap::async::StopSource  m_StopSource;
+        Config                       m_Config;
+        sap::async::Executor         m_Executor;
+        stl::optional<S>             m_Listener;
+        stl::vector<RouteAsync>      m_Routes;
+        stl::vector<MiddlewareAsync> m_Middleware;
+        sap::async::StopSource       m_StopSource;
         // stop() is single-threaded by contract (called from the executor's
         // thread, typically from inside a route handler).
         bool                    m_Running = false;

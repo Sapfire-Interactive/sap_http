@@ -26,6 +26,7 @@ namespace {
     constexpr u16 PORT_THROW      = 12105;
     constexpr u16 PORT_NOTFOUND   = 12106;
     constexpr u16 PORT_KEEPALIVE  = 12107;
+    constexpr u16 PORT_ASYNC_MW   = 12108;
 
     stl::thread start_async_server(HttpServerAsync& server) {
         auto res = server.start();
@@ -240,6 +241,41 @@ TEST(ServerAsyncTest, UnknownPathReturns404) {
     EXPECT_NE(resp.find("HTTP/1.1 404"), std::string::npos);
 
     trigger_shutdown(PORT_NOTFOUND);
+    if (t.joinable())
+        t.join();
+}
+
+TEST(ServerAsyncTest, AsyncMiddlewareCanSuspend) {
+    auto _sr = make_server(PORT_ASYNC_MW); ASSERT_TRUE(_sr.has_value()); auto& server = _sr.value();
+    auto& ex = server.executor();
+    server.use([&ex](Request& req) -> Task<std::optional<Response>> {
+        co_await sleep_for(ex, std::chrono::milliseconds(20));
+        if (req.headers.get("X-Block") == "1")
+            co_return Response(EStatusCode::Forbidden, "denied");
+        co_return std::nullopt;
+    });
+    server.route("/ok", EMethod::GET, [](const Request&) -> Task<Response> { co_return Response(EStatusCode::OK, "passed"); });
+    route_shutdown(server);
+    auto t = start_async_server(server);
+
+    {
+        auto sock = raw_connect(PORT_ASYNC_MW);
+        ASSERT_NE(sock, nullptr);
+        ASSERT_TRUE(send_all(*sock, "GET /ok HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nX-Block: 1\r\n\r\n"));
+        auto resp = recv_until_close(*sock);
+        EXPECT_NE(resp.find("HTTP/1.1 403"), std::string::npos);
+        EXPECT_NE(resp.find("\r\n\r\ndenied"), std::string::npos);
+    }
+    {
+        auto sock = raw_connect(PORT_ASYNC_MW);
+        ASSERT_NE(sock, nullptr);
+        ASSERT_TRUE(send_all(*sock, "GET /ok HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+        auto resp = recv_until_close(*sock);
+        EXPECT_NE(resp.find("HTTP/1.1 200"), std::string::npos);
+        EXPECT_NE(resp.find("\r\n\r\npassed"), std::string::npos);
+    }
+
+    trigger_shutdown(PORT_ASYNC_MW);
     if (t.joinable())
         t.join();
 }

@@ -98,7 +98,8 @@ namespace sap::http {
             co_return stl::result<>{};
         }
 
-        sap::async::Task<Response> dispatch(Request req, const stl::vector<RouteAsync>& routes, const stl::vector<Middleware>& middleware) {
+        sap::async::Task<Response> dispatch(Request req, const stl::vector<RouteAsync>& routes,
+                                            const stl::vector<MiddlewareAsync>& middleware) {
             auto matched = match_route(routes, req.method, req.url.path);
             if (matched.route) {
                 for (auto& [k, v] : matched.params)
@@ -109,7 +110,7 @@ namespace sap::http {
             if (!skip_mw) {
                 for (const auto& mw : middleware) {
                     try {
-                        auto mw_resp = mw(req);
+                        auto mw_resp = co_await mw(req);
                         if (mw_resp)
                             co_return stl::move(*mw_resp);
                     } catch (const std::exception& e) {
@@ -130,7 +131,7 @@ namespace sap::http {
 
         template <sap::network::SocketAsync S>
         sap::async::Task<void> handle_connection(S sock, stl::size_t max_header_size, stl::size_t max_body_size,
-                                                 const stl::vector<RouteAsync>* routes, const stl::vector<Middleware>* middleware) {
+                                                 const stl::vector<RouteAsync>* routes, const stl::vector<MiddlewareAsync>* middleware) {
             stl::vector<stl::byte> carry;
             while (true) {
                 auto header_result = co_await async_read_header(sock, max_header_size, carry);
@@ -216,7 +217,7 @@ namespace sap::http {
         template <sap::network::SocketAsync S>
         sap::async::Task<void> accept_loop(sap::async::Executor& ex, S& listener, const bool& running, sap::async::StopToken stop_tok,
                                            stl::size_t max_header, stl::size_t max_body, const stl::vector<RouteAsync>* routes,
-                                           const stl::vector<Middleware>* middleware) {
+                                           const stl::vector<MiddlewareAsync>* middleware) {
             while (running) {
                 auto child = co_await listener.accept(stop_tok);
                 if (!child) {
