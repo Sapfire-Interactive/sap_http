@@ -157,7 +157,8 @@ TEST(ServerAsyncTest, HandlerWithSleep) {
     auto _sr = make_server(PORT_SLEEP); ASSERT_TRUE(_sr.has_value()); auto& server = _sr.value();
     auto&           ex = server.executor();
     server.route("/slow", EMethod::GET, [&ex](const Request&) -> Task<Response> {
-        co_await sleep_for(ex, std::chrono::milliseconds(30));
+        if (auto r = co_await sleep_for(ex, std::chrono::milliseconds(30)); !r)
+            co_return Response(EStatusCode::InternalServerError, stl::string{r.error().c_str()});
         co_return Response(EStatusCode::OK, "done");
     });
     route_shutdown(server);
@@ -251,7 +252,8 @@ TEST(ServerAsyncTest, AsyncMiddlewareCanSuspend) {
     auto _sr = make_server(PORT_ASYNC_MW); ASSERT_TRUE(_sr.has_value()); auto& server = _sr.value();
     auto& ex = server.executor();
     server.use([&ex](Request& req) -> Task<std::optional<Response>> {
-        co_await sleep_for(ex, std::chrono::milliseconds(20));
+        if (auto r = co_await sleep_for(ex, std::chrono::milliseconds(20)); !r)
+            co_return Response(EStatusCode::InternalServerError, stl::string{r.error().c_str()});
         if (req.headers.get("X-Block") == "1")
             co_return Response(EStatusCode::Forbidden, "denied");
         co_return std::nullopt;
@@ -290,7 +292,8 @@ TEST(ServerAsyncTest, MiddlewareChainOrder) {
         return std::nullopt;
     });
     server.use([&ex](Request& req) -> Task<std::optional<Response>> {
-        co_await sleep_for(ex, std::chrono::milliseconds(5));
+        if (auto r = co_await sleep_for(ex, std::chrono::milliseconds(5)); !r)
+            co_return Response(EStatusCode::InternalServerError, stl::string{r.error().c_str()});
         req.headers.set("X-Trace", req.headers.get("X-Trace") + "b");
         co_return std::nullopt;
     });
