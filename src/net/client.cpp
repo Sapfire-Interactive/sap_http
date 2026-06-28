@@ -331,7 +331,7 @@ std::future<stl::result<Response>> Client<S>::post(stl::string_view url_str, stl
     return async_send(std::move(req));
 }
 
-template class Client<sap::network::TCPSocket>;
-template class Client<sap::network::TLSSocket>;
+template class SAP_HTTP_API Client<sap::network::TCPSocket>;
+template class SAP_HTTP_API Client<sap::network::TLSSocket>;
 
 } // namespace sap::http

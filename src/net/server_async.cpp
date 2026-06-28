@@ -301,7 +301,7 @@ namespace sap::http {
         return m_Executor;
     }
 
-    template class ServerAsync<sap::network::TCPSocketAsync>;
-    template class ServerAsync<sap::network::TLSSocketAsync>;
+    template class SAP_HTTP_API ServerAsync<sap::network::TCPSocketAsync>;
+    template class SAP_HTTP_API ServerAsync<sap::network::TLSSocketAsync>;
 
 } // namespace sap::http

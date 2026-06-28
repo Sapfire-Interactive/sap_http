@@ -61,6 +61,7 @@ if(SAP_HTTP_BUILD_SHARED)
     endif()
 
     target_link_libraries(sap_http_shared PUBLIC sap::core sap::network)
+    target_compile_definitions(sap_http_shared PRIVATE SAP_HTTP_EXPORTS)
 
     set_target_properties(sap_http_shared PROPERTIES
         OUTPUT_NAME sap_http
@@ -85,6 +86,7 @@ if(SAP_HTTP_BUILD_STATIC)
     endif()
 
     target_link_libraries(sap_http_static PUBLIC sap::core sap::network)
+    target_compile_definitions(sap_http_static PUBLIC SAP_HTTP_STATIC_DEFINE)
 
     set_target_properties(sap_http_static PROPERTIES
         OUTPUT_NAME sap_http

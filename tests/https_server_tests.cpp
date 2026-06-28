@@ -11,8 +11,21 @@
 #include "sap_http/net/http.h"
 #include "self_signed_cert.h"
 
+#ifdef _WIN32
+#include <openssl/applink.c> // route FILE* across the CRT boundary for PEM_*_fp
+#endif
+
+#include <sap_network/platform.h>
 #include <sap_network/tls_socket.h>
 #include <sap_network/tcp_socket.h>
+
+namespace {
+    // Bring up Winsock once for the whole sap_http_tests binary (no-op on Linux).
+    struct SocketPlatformEnv : ::testing::Environment {
+        void SetUp() override { sap::network::SocketPlatform::init(); }
+    };
+    const auto* g_socket_platform_env = ::testing::AddGlobalTestEnvironment(new SocketPlatformEnv);
+} // namespace
 
 #include <atomic>
 #include <chrono>

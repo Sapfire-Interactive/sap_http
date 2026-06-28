@@ -339,6 +339,6 @@ namespace sap::http {
             m_RunThread.join();
     }
 
-    template class Server<sap::network::TCPSocket>;
-    template class Server<sap::network::TLSSocket>;
+    template class SAP_HTTP_API Server<sap::network::TCPSocket>;
+    template class SAP_HTTP_API Server<sap::network::TLSSocket>;
 } // namespace sap::http

@@ -228,7 +228,7 @@ namespace sap::http {
         co_return co_await send(stl::move(req));
     }
 
-    template class ClientAsync<sap::network::TCPSocketAsync>;
-    template class ClientAsync<sap::network::TLSSocketAsync>;
+    template class SAP_HTTP_API ClientAsync<sap::network::TCPSocketAsync>;
+    template class SAP_HTTP_API ClientAsync<sap::network::TLSSocketAsync>;
 
 } // namespace sap::http

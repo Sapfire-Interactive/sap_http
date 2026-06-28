@@ -22,6 +22,7 @@
 #include "sap_core/async/stop_token.h"
 #include "sap_core/async/sync_wait.h"
 #include "sap_core/async/task.h"
+#include "sap_http/export.h"
 #include "sap_http/net/status_codes.h"
 #include "sap_network/socket_async_concept.h"
 #include "sap_network/tcp_socket.h"
@@ -72,7 +73,7 @@ namespace sap::http {
         return EMethod::UNKNOWN;
     }
 
-    struct URL {
+    struct SAP_HTTP_API URL {
         stl::string scheme;
         stl::string host;
         stl::string port;
@@ -84,7 +85,7 @@ namespace sap::http {
         static stl::result<URL> from_path(stl::string_view path_and_query);
     };
 
-    struct Headers {
+    struct SAP_HTTP_API Headers {
         stl::map<stl::string, stl::string> data;
 
         void set(stl::string_view key, stl::string_view value);
@@ -92,14 +93,14 @@ namespace sap::http {
         bool has(stl::string_view key) const;
     };
 
-    struct Request {
+    struct SAP_HTTP_API Request {
         EMethod method = EMethod::GET;
         URL url;
         Headers headers;
         stl::string body;
         std::chrono::milliseconds timeout{30000};
 
-        // Optional: route params extracted by server routing (e.g., /users/:id)
+        // Route params extracted by server routing (e.g., /users/:id)
         stl::map<stl::string, stl::string> params;
 
         Request() = default;
@@ -109,7 +110,7 @@ namespace sap::http {
         void set_body(stl::string data);
     };
 
-    struct Response {
+    struct SAP_HTTP_API Response {
         EStatusCode status_code{};
         stl::string status_text;
         Headers headers;
@@ -539,5 +540,18 @@ namespace sap::http {
 
     using HttpServerAsync  = ServerAsync<sap::network::TCPSocketAsync>;
     using HttpsServerAsync = ServerAsync<sap::network::TLSSocketAsync>;
+
+    // Consumers of the DLL import the explicit instantiations defined in the
+    // .cpp files rather than re-instantiating their (out-of-line) members.
+#if defined(_WIN32) && !defined(SAP_HTTP_EXPORTS) && !defined(SAP_HTTP_STATIC_DEFINE)
+    extern template class SAP_HTTP_API Client<sap::network::TCPSocket>;
+    extern template class SAP_HTTP_API Client<sap::network::TLSSocket>;
+    extern template class SAP_HTTP_API ClientAsync<sap::network::TCPSocketAsync>;
+    extern template class SAP_HTTP_API ClientAsync<sap::network::TLSSocketAsync>;
+    extern template class SAP_HTTP_API Server<sap::network::TCPSocket>;
+    extern template class SAP_HTTP_API Server<sap::network::TLSSocket>;
+    extern template class SAP_HTTP_API ServerAsync<sap::network::TCPSocketAsync>;
+    extern template class SAP_HTTP_API ServerAsync<sap::network::TLSSocketAsync>;
+#endif
 
 } // namespace sap::http
